@@ -15,6 +15,14 @@
             <h1>OnlyFriends</h1>
           </div>
           <p>Plot the plan, roast the chaos, and lock the best meetup with live routes.</p>
+          <aside class="telegram-widget" aria-label="Telegram bot guide">
+            <span>Telegram bot</span>
+            <strong>@of_friend_bot</strong>
+            <code>/newmeet cafe fastest quiet cheap</code>
+            <code>/add Ben bike at Tampines</code>
+            <code>/rank park 25min</code>
+          </aside>
+          <span class="status-pill" id="status-line">Ready</span>
         </header>
 
         <form id="planner-form" class="planner-form">
@@ -42,7 +50,7 @@
                 <input id="optimizeFor" name="optimizeFor" type="hidden" value="" />
                 <div class="vibe-chips optimize-chips" role="group" aria-label="Squad priority mode">
                   <button class="vibe-chip optimize-chip" type="button" data-optimize="fair" title="Peacekeeper keeps travel times balanced so no one gets the painful route.">Peacekeeper</button>
-                  <button class="vibe-chip optimize-chip" type="button" data-optimize="fastest" title="Speedrun picks the option with the shortest total group travel time.">Speedrun</button>
+                  <button class="vibe-chip optimize-chip" type="button" data-optimize="fastest" title="Speedrun picks the option where everyone can arrive the soonest.">Speedrun</button>
                   <button class="vibe-chip optimize-chip" type="button" data-optimize="capped" title="No One Stranded avoids plans where any one friend has a very long trip.">No One Stranded</button>
                   <button class="vibe-chip optimize-chip" type="button" data-optimize="social" title="Drama Saver favors socially balanced plans with lower fairness friction.">Drama Saver</button>
                 </div>
@@ -83,32 +91,27 @@
       <section class="map-board experience-stage is-locked" id="step-map-board">
         <section class="map-panel">
           <div id="map"></div>
+          <div class="map-tools" aria-label="Map layer controls">
+            <strong>Map polish</strong>
+            <label><input type="checkbox" data-map-layer="routes" checked /> Routes</label>
+            <label><input type="checkbox" data-map-layer="points" checked /> Pins</label>
+            <label><input type="checkbox" data-map-layer="labels" checked /> Labels</label>
+            <label><input type="checkbox" data-map-layer="fairness" checked /> Fairness ring</label>
+          </div>
           <div class="map-status" id="map-status">Loading Grab map...</div>
         </section>
 
         <aside class="lane-panel">
           <div class="section-heading">
-            <span>3</span>
             <strong id="heading-picks">Hot picks lane</strong>
           </div>
           <div class="results-list" id="results-list"></div>
         </aside>
       </section>
 
-      <section class="summary-panel experience-stage is-locked" id="step-summary">
-        <header class="results-header">
-          <div>
-            <p class="eyebrow">Squad consensus</p>
-            <h2>Top pick snapshot</h2>
-          </div>
-          <span class="status-pill" id="status-line">Ready</span>
-        </header>
-        <div class="share-card" id="share-card" hidden></div>
-      </section>
-
       <section class="roast-panel experience-stage is-locked" id="roast-panel">
         <div class="section-heading">
-          <span>4</span>
+          <span>3</span>
           <strong id="heading-roast">Final roast</strong>
         </div>
         <div class="intent-actions">

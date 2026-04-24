@@ -56,7 +56,6 @@ textarea {
 .top-panel,
 .map-panel,
 .lane-panel,
-.summary-panel,
 .roast-panel {
   min-width: 0;
   border-radius: var(--radius-xl);
@@ -68,7 +67,6 @@ textarea {
 
 .top-panel,
 .lane-panel,
-.summary-panel,
 .roast-panel {
   padding: 24px;
 }
@@ -104,6 +102,43 @@ textarea {
   display: block;
 }
 
+.map-tools {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 4;
+  display: grid;
+  gap: 8px;
+  width: 180px;
+  padding: 12px;
+  border: 1px solid #d7dee8;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.93);
+  box-shadow: var(--soft-shadow);
+}
+
+.map-tools strong {
+  color: var(--ink);
+  font-size: 0.78rem;
+}
+
+.map-tools label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.map-tools input {
+  width: auto;
+  min-height: 0;
+  accent-color: var(--highlight);
+}
+
 .app-header {
   display: grid;
   gap: 10px;
@@ -125,6 +160,44 @@ textarea {
   color: var(--muted);
   font-size: 1.02rem;
   line-height: 1.5;
+}
+
+.telegram-widget {
+  display: grid;
+  gap: 6px;
+  width: min(420px, 100%);
+  margin-top: 8px;
+  padding: 14px;
+  border: 1px solid #d7dfea;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: var(--soft-shadow);
+  text-align: left;
+}
+
+.telegram-widget span {
+  color: var(--highlight);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.telegram-widget strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.telegram-widget code {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 9px;
+  background: #f1f5f9;
+  color: #334155;
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .eyebrow {
@@ -550,8 +623,7 @@ textarea::placeholder {
 }
 
 .friend-card,
-.result-card,
-.share-card {
+.result-card {
   background: var(--panel-solid);
   border-radius: var(--radius-lg);
   border: 1px solid #d5dde8;
@@ -561,6 +633,11 @@ textarea::placeholder {
 .friend-card {
   padding: 14px;
   border-width: 2px;
+}
+
+.friend-card.is-picking {
+  background: linear-gradient(180deg, #ffffff, #eefdf8);
+  box-shadow: 0 0 0 3px rgba(14, 165, 164, 0.16), var(--soft-shadow);
 }
 
 .friend-top {
@@ -578,13 +655,21 @@ textarea::placeholder {
 
 .friend-actions {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
   margin-top: 8px;
 }
 
-.remove-friend {
+.remove-friend,
+.pin-friend {
   min-height: 36px;
   padding: 0 12px;
+}
+
+.pin-friend {
+  color: #065f46;
+  border-color: #99f6e4;
+  background: #ecfdf5;
 }
 
 .selected-place {
@@ -676,11 +761,6 @@ textarea::placeholder {
   max-width: none;
 }
 
-.summary-panel {
-  display: grid;
-  align-content: start;
-}
-
 .experience-stage {
   transition: opacity 480ms ease, transform 480ms ease, filter 480ms ease;
 }
@@ -698,18 +778,11 @@ textarea::placeholder {
   filter: none;
 }
 
-.results-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.results-header h2 {
-  margin: 0;
-  font-size: 1.44rem;
-  letter-spacing: -0.02em;
-  color: var(--ink);
+.experience-stage.is-pin-picking {
+  opacity: 1;
+  transform: translateY(0);
+  filter: none;
+  pointer-events: auto;
 }
 
 .status-pill {
@@ -723,22 +796,49 @@ textarea::placeholder {
   text-align: right;
 }
 
-.share-card {
-  margin-top: 14px;
-  padding: 16px;
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(79, 70, 229, 0.04));
+.court-verdict,
+.court-line {
+  color: #172554;
+  font-weight: 700;
 }
 
-.share-card h2 {
-  margin: 0 0 8px;
-  font-size: 1.2rem;
+.court-line {
+  margin: 10px 0 0;
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.court-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.court-stats span {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  border: 1px solid #dbe5f2;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+  color: #475569;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.court-stats strong {
   color: var(--ink);
+  font-size: 1rem;
 }
 
-.share-card p {
-  margin: 0;
-  color: #4a5568;
-  line-height: 1.4;
+.court-stats.compact {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.court-stats.compact span {
+  padding: 7px;
+  font-size: 0.69rem;
 }
 
 .results-list {
@@ -788,6 +888,19 @@ textarea::placeholder {
   white-space: nowrap;
 }
 
+.variety-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: #ecfeff;
+  color: #0f766e;
+  border: 1px solid #a7f3d0;
+  padding: 5px 9px;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
 .meta {
   margin: 6px 0 0;
   color: var(--muted);
@@ -815,10 +928,27 @@ textarea::placeholder {
 
 .route-bar {
   display: grid;
-  grid-template-columns: 72px 1fr 52px;
+  grid-template-columns: 72px 1fr 92px;
   align-items: center;
   gap: 8px;
   font-size: 0.78rem;
+}
+
+.route-bar span {
+  display: grid;
+  justify-items: end;
+  gap: 1px;
+}
+
+.route-bar b {
+  color: var(--ink);
+}
+
+.route-bar small {
+  color: var(--muted);
+  font-size: 0.64rem;
+  line-height: 1.1;
+  text-align: right;
 }
 
 .bar-track {
@@ -891,13 +1021,8 @@ textarea::placeholder {
 
   .top-panel,
   .lane-panel,
-  .summary-panel,
   .roast-panel {
     padding: 16px;
-  }
-
-  .results-header {
-    display: grid;
   }
 
   .status-pill {

@@ -205,8 +205,8 @@ function routeProfile(mode) {
   return {
     car: "driving",
     driving: "driving",
-    public_transport: "driving",
-    transit: "driving",
+    motorcycle: "motorcycle",
+    motorbike: "motorcycle",
     bike: "cycling",
     bicycle: "cycling",
     cycling: "cycling",
@@ -228,15 +228,102 @@ function venueKeywordForCategory(category) {
   }[normalized] || "";
 }
 
-function venueSearchKeyword({ categories = [], intent = "" }) {
-  const normalizedCategories = categories
+function intentSignals(intent = "") {
+  const text = String(intent).toLowerCase();
+  const signals = [];
+  const matchers = [
+    { tokens: ["quiet", "calm", "chill", "cozy"], keyword: "quiet cozy" },
+    { tokens: ["cheap", "budget", "affordable"], keyword: "cheap affordable" },
+    { tokens: ["late", "night", "open"], keyword: "late night" },
+    { tokens: ["aircon", "air con", "air-conditioned", "air conditioned", "indoor"], keyword: "indoor aircon" },
+    { tokens: ["date", "romantic"], keyword: "romantic date" },
+    { tokens: ["work", "laptop", "wifi", "cowork"], keyword: "wifi workspace" },
+    { tokens: ["dessert", "sweet", "ice cream", "bakery"], keyword: "dessert bakery" },
+    { tokens: ["food", "dinner", "lunch", "meal"], keyword: "restaurant food" },
+    { tokens: ["coffee", "cafe"], keyword: "cafe coffee" },
+    { tokens: ["drink", "bar", "pub"], keyword: "bar pub" },
+    { tokens: ["park", "outdoor", "grass"], keyword: "park garden" }
+  ];
+
+  for (const matcher of matchers) {
+    if (matcher.tokens.some((token) => text.includes(token))) {
+      signals.push(matcher.keyword);
+    }
+  }
+
+  return [...new Set(signals)].slice(0, 4);
+}
+
+function venueSearchKeywords({ categories = [], intent = "" }) {
+  const categoryKeywords = categories
     .map((category) => venueKeywordForCategory(category))
     .filter(Boolean);
-  const parts = [
-    String(intent || "").trim(),
-    ...normalizedCategories
+  const baseKeywords = categoryKeywords.length ? categoryKeywords : ["cafe coffee"];
+  const signals = intentSignals(intent).filter((signal) => !baseKeywords.includes(signal));
+  const directIntent = String(intent || "").trim();
+  const keywords = [
+    ...baseKeywords.flatMap((base) => [
+      [signals[0], base].filter(Boolean).join(" "),
+      base,
+      ...signals.map((signal) => `${signal} ${base}`)
+    ]),
+    directIntent
   ].filter(Boolean);
-  return parts.length ? [...new Set(parts)].join(" ") : "cafe coffee";
+  return [...new Set(keywords)].slice(0, 6);
+}
+
+function venueSearchKeyword(args) {
+  return venueSearchKeywords(args)[0] || "cafe coffee";
+}
+
+function categoryTerms(category) {
+  const normalized = String(category || "cafe").toLowerCase();
+  return {
+    cafe: ["cafe", "coffee", "bakery", "food", "beverage"],
+    food: ["restaurant", "food", "meal", "dining", "beverage"],
+    mall: ["mall", "shopping", "retail"],
+    park: ["park", "garden", "trail", "nature"],
+    bar: ["bar", "pub", "drink", "beverage"],
+    dessert: ["dessert", "ice cream", "gelato", "bakery", "cake", "pastry", "sweet", "chocolate", "waffle"],
+    coworking: ["cowork", "workspace", "office", "business"]
+  }[normalized] || ["place"];
+}
+
+function normalizedPlaceText(place) {
+  return [
+    place.name,
+    place.category,
+    place.address,
+    place.raw?.category,
+    place.raw?.business_type,
+    ...(place.raw?.categories || []).map((item) => item.category_name)
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function placeMatchesCategory(place, category) {
+  const normalized = String(category || "").toLowerCase();
+  const haystack = normalizedPlaceText(place);
+  if (normalized === "dessert") {
+    const dessertWords = categoryTerms("dessert");
+    return dessertWords.some((term) => haystack.includes(term));
+  }
+  return categoryTerms(normalized).some((term) => haystack.includes(term));
+}
+
+function placeMatchesCategories(place, categories = []) {
+  if (!categories.length) return true;
+  return categories.some((category) => placeMatchesCategory(place, category));
+}
+
+function isUsefulVenueFallback(place) {
+  const haystack = [
+    place.category,
+    place.raw?.category,
+    place.raw?.business_type,
+    ...(place.raw?.categories || []).map((category) => category.category_name)
+  ].filter(Boolean).join(" ").toLowerCase();
+  const blockedTerms = ["residential", "commercial building", "parking", "school", "education", "bus stop", "transit"];
+  return !blockedTerms.some((term) => haystack.includes(term));
 }
 
 function centerOf(friends) {
@@ -247,12 +334,45 @@ function centerOf(friends) {
   return { lat: totals.lat / friends.length, lng: totals.lng / friends.length };
 }
 
+function distanceMeters(a, b) {
+  const earthRadius = 6371000;
+  const toRadians = (value) => value * Math.PI / 180;
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const deltaLat = toRadians(b.lat - a.lat);
+  const deltaLng = toRadians(b.lng - a.lng);
+  const haversine = Math.sin(deltaLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(deltaLng / 2) ** 2;
+  return 2 * earthRadius * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+}
+
+function candidateRadiusKm(friends, center) {
+  const farthestOriginKm = Math.max(
+    0,
+    ...friends.map((friend) => distanceMeters(center, friend) / 1000)
+  );
+  if (farthestOriginKm <= 1.5) return 2.5;
+  if (farthestOriginKm <= 5) return 4;
+  return 6;
+}
+
 function coordinateFrom(location, ...keys) {
   for (const key of keys) {
     const value = Number(location?.[key]);
     if (Number.isFinite(value)) return value;
   }
   return NaN;
+}
+
+function areaFromPlace(place) {
+  const areas = Array.isArray(place.administrative_areas) ? place.administrative_areas : [];
+  return (
+    areas.find((area) => area.type === "Neighborhood")?.name ||
+    areas.find((area) => area.type === "Municipality")?.name ||
+    place.street ||
+    place.city ||
+    ""
+  );
 }
 
 function normalizePlace(place) {
@@ -263,6 +383,7 @@ function normalizePlace(place) {
     name: place.name || place.short_name || "Unnamed place",
     category: place.category || place.business_type || place.categories?.[0]?.category_name || "place",
     address: place.formatted_address || [place.house, place.street, place.postcode].filter(Boolean).join(", "),
+    area: areaFromPlace(place),
     lat,
     lng,
     raw: place
@@ -275,6 +396,21 @@ async function searchPlaces({ keyword, location, country = "SGP", limit = 8 }) {
     keyword,
     country,
     location,
+    limit: maxResults
+  });
+  return (data.places || [])
+    .map(normalizePlace)
+    .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng))
+    .slice(0, maxResults);
+}
+
+async function nearbyPlaces({ location, radius = 2, rankBy = "distance", language, limit = 10 }) {
+  const maxResults = Number(limit) || 10;
+  const data = await grabRequest("/api/v1/maps/place/v2/nearby", {
+    location,
+    radius,
+    rankBy,
+    language,
     limit: maxResults
   });
   return (data.places || [])
@@ -329,7 +465,9 @@ async function routeBetween(origin, destination, mode) {
     distance: route.distance,
     duration: route.duration,
     geometry: route.geometry,
-    trafficLight: route.traffic_light,
+    trafficLight: route.traffic_light || 0,
+    fee: route.fee || null,
+    legs: route.legs || [],
     mode: routeProfile(mode),
     waypoints: data.waypoints || []
   };
@@ -344,17 +482,19 @@ function durationStats(routes) {
   return { durations, total, max, min, avg, imbalance: max - min };
 }
 
-function scoreCandidate(stats, optimizeFor, capMinutes) {
-  if (optimizeFor === "fastest") return stats.total;
+function scoreCandidate(stats, optimizeFor, capMinutes, centerDistanceMeters = 0, intentFit = true) {
+  const proximityPenalty = centerDistanceMeters * 0.08;
+  const intentPenalty = intentFit === false ? 900 : 0;
+  if (optimizeFor === "fastest") return stats.max * 0.85 + stats.avg * 0.1 + stats.imbalance * 0.05 + proximityPenalty + intentPenalty;
   if (optimizeFor === "capped") {
-    const capSeconds = capMinutes * 60;
+    const capSeconds = (capMinutes || 25) * 60;
     const penalty = stats.max > capSeconds ? (stats.max - capSeconds) * 10 : 0;
-    return stats.max * 0.45 + stats.total * 0.25 + stats.imbalance * 0.3 + penalty;
+    return stats.max * 0.45 + stats.total * 0.25 + stats.imbalance * 0.3 + penalty + proximityPenalty + intentPenalty;
   }
   if (optimizeFor === "social") {
-    return stats.max * 0.5 + stats.imbalance * 0.35 + stats.avg * 0.15;
+    return stats.max * 0.5 + stats.imbalance * 0.35 + stats.avg * 0.15 + proximityPenalty + intentPenalty;
   }
-  return stats.max * 0.55 + stats.avg * 0.25 + stats.imbalance * 0.2;
+  return stats.max * 0.55 + stats.avg * 0.25 + stats.imbalance * 0.2 + proximityPenalty + intentPenalty;
 }
 
 function fairnessScore(stats) {
@@ -366,7 +506,10 @@ function explain(candidate) {
   const longest = Math.round(candidate.stats.max / 60);
   const average = Math.round(candidate.stats.avg / 60);
   const spread = Math.round(candidate.stats.imbalance / 60);
-  return `Chosen because the average trip is ${average} min, the longest trip is ${longest} min, and the group spread is ${spread} min.`;
+  const combined = Math.round(candidate.stats.total / 60);
+  const trafficLights = candidate.routes.reduce((sum, route) => sum + Number(route.trafficLight || 0), 0);
+  const source = candidate.venue.source === "nearby" ? "nearby GrabMaps POI discovery" : "GrabMaps keyword search";
+  return `Chosen from ${source} using GrabMaps traffic-adjusted ETAs because everyone can arrive in about ${longest} min, the average trip is ${average} min, the spread is ${spread} min, combined travel effort is ${combined} min, and routes pass ${trafficLights} traffic lights.`;
 }
 
 function roastFor(candidate, tone) {
@@ -380,24 +523,143 @@ function roastFor(candidate, tone) {
   return lines[tone] || lines.spicy;
 }
 
+function courtFor(candidate) {
+  const sortedRoutes = [...candidate.routes].sort((a, b) => b.duration - a.duration);
+  const worst = sortedRoutes[0];
+  const best = sortedRoutes.at(-1);
+  const trafficLights = candidate.routes.reduce((sum, route) => sum + Number(route.trafficLight || 0), 0);
+  const longest = Math.round(worst.duration / 60);
+  const shortest = Math.round(best.duration / 60);
+  const spread = Math.round(candidate.stats.imbalance / 60);
+  const totalDistance = candidate.routes.reduce((sum, route) => sum + Number(route.distance || 0), 0);
+  const verdict = spread <= 8
+    ? "Approved: suspiciously civil"
+    : spread <= 18
+      ? "Approved with side-eye"
+      : "Approved, but someone is filing an appeal";
+
+  return {
+    verdict,
+    worstFriend: worst.friendName,
+    bestFriend: best.friendName,
+    longestMinutes: longest,
+    shortestMinutes: shortest,
+    spreadMinutes: spread,
+    totalDistance,
+    trafficLights,
+    evidence: `${worst.friendName} carries the longest trip at ${longest} min while ${best.friendName} gets away with ${shortest} min.`
+  };
+}
+
 function sortAndShape(candidates, optimizeFor, capMinutes, tone) {
-  return candidates
+  const sorted = candidates
     .map((candidate) => {
       const stats = durationStats(candidate.routes);
       const scored = {
         ...candidate,
         stats,
-        score: scoreCandidate(stats, optimizeFor, capMinutes),
+        score: scoreCandidate(stats, optimizeFor, capMinutes, candidate.venue.centerDistanceMeters, candidate.venue.intentFit),
         fairnessScore: fairnessScore(stats)
       };
       return {
         ...scored,
         explanation: explain(scored),
-        roast: roastFor(scored, tone)
+        roast: roastFor(scored, tone),
+        court: courtFor(scored)
       };
     })
-    .sort((a, b) => a.score - b.score)
-    .slice(0, 5);
+    .sort((a, b) => a.score - b.score);
+
+  const picked = [];
+  const pickedIds = new Set();
+  const pickedAreas = new Set();
+
+  for (const candidate of sorted) {
+    const areaKey = (candidate.venue.area || candidate.venue.address || candidate.venue.name || "").toLowerCase();
+    if (picked.length > 0 && areaKey && pickedAreas.has(areaKey)) continue;
+    picked.push(candidate);
+    pickedIds.add(candidate.venue.id);
+    if (areaKey) pickedAreas.add(areaKey);
+    if (picked.length >= 5) break;
+  }
+
+  for (const candidate of sorted) {
+    if (picked.length >= 5) break;
+    if (pickedIds.has(candidate.venue.id)) continue;
+    picked.push(candidate);
+    pickedIds.add(candidate.venue.id);
+  }
+
+  return picked.map((candidate, index) => ({
+    ...candidate,
+    varietyTag: index === 0
+      ? "Best overall"
+      : candidate.venue.area
+        ? `Different pocket: ${candidate.venue.area}`
+        : candidate.venue.source === "nearby"
+          ? "Nearby wild card"
+          : "Same intent, new backup"
+  }));
+}
+
+async function discoverVenues({ center, friends, categories, intent, country, candidateLimit }) {
+  const location = `${center.lat},${center.lng}`;
+  const keywords = venueSearchKeywords({ categories, intent });
+  const radiusKm = candidateRadiusKm(friends, center);
+  const fallbackRadiusKm = Math.max(radiusKm, 5);
+  const withinRadius = (place, radius) => place.centerDistanceMeters <= radius * 1000;
+  const annotate = (place, source) => ({
+    ...place,
+    ...source,
+    centerDistanceMeters: distanceMeters(center, place)
+  });
+  const maxPerSearch = Math.max(5, Math.ceil(Number(candidateLimit || 18) / keywords.length));
+  const keywordResults = await Promise.allSettled(
+    keywords.map(async (keyword) => {
+      const places = await searchPlaces({ keyword, location, country, limit: maxPerSearch });
+      return places.map((place) => annotate(place, { source: "keyword", sourceKeyword: keyword }));
+    })
+  );
+  const nearbyResults = await Promise.allSettled([
+    nearbyPlaces({ location, radius: radiusKm, rankBy: "distance", limit: 16 }),
+    nearbyPlaces({ location, radius: radiusKm, rankBy: "popularity", limit: 16 })
+  ]);
+  const nearbyPlacesFromApi = nearbyResults.flatMap((result) => result.status === "fulfilled"
+    ? result.value.map((place) => annotate(place, { source: "nearby" })).filter((place) => withinRadius(place, radiusKm))
+    : []);
+  const keywordPlacesFromApi = keywordResults
+    .flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  const localKeywordPlaces = keywordPlacesFromApi
+    .filter((place) => withinRadius(place, radiusKm))
+    .map((place) => ({ ...place, intentFit: true }));
+  const fallbackKeywordPlaces = keywordPlacesFromApi.filter((place) => withinRadius(place, fallbackRadiusKm));
+  const matchedNearbyPlaces = nearbyPlacesFromApi
+    .filter((place) => placeMatchesCategories(place, categories))
+    .map((place) => ({ ...place, intentFit: true }));
+  const categoryMatchedPlaces = [...localKeywordPlaces, ...matchedNearbyPlaces];
+  const shouldUseGenericLocalBackups = !categories.some((category) => String(category).toLowerCase() === "dessert");
+  const localBackupPlaces = categoryMatchedPlaces.length >= Math.min(5, Number(candidateLimit || 18))
+    ? []
+    : !shouldUseGenericLocalBackups
+      ? []
+    : nearbyPlacesFromApi
+      .filter((place) => !categoryMatchedPlaces.some((matchedPlace) => matchedPlace.id === place.id))
+      .filter(isUsefulVenueFallback)
+      .map((place) => ({ ...place, intentFit: false }));
+
+  const allPlaces = [
+    ...categoryMatchedPlaces,
+    ...localBackupPlaces,
+    ...(categoryMatchedPlaces.length ? [] : fallbackKeywordPlaces)
+  ];
+
+  return {
+    keywords,
+    searchRadiusKm: radiusKm,
+    places: [...new Map(allPlaces.map((place) => [place.id, place])).values()]
+      .sort((a, b) => a.centerDistanceMeters - b.centerDistanceMeters)
+      .slice(0, Number(candidateLimit || 18))
+  };
 }
 
 app.get("/api/health", (req, res) => {
@@ -470,7 +732,12 @@ app.get("/api/reverse", async (req, res, next) => {
       location: req.query.location,
       type: req.query.type
     });
-    res.json(data);
+    res.json({
+      ...data,
+      places: (data.places || [])
+        .map(normalizePlace)
+        .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng))
+    });
   } catch (error) {
     next(error);
   }
@@ -523,18 +790,19 @@ app.post("/api/recommend", async (req, res, next) => {
       res.status(400).json({ error: "Provide a plan or at least one filter before launching." });
       return;
     }
-    const venueKeyword = venueSearchKeyword({ categories, intent });
     const optimizeFor = req.body.optimizeFor || "fair";
     const capMinutes = Number(req.body.capMinutes || 25);
     const tone = req.body.tone || "spicy";
-    const venuePlaces = await searchPlaces({
-      keyword: venueKeyword,
-      location: `${center.lat},${center.lng}`,
+    const discovery = await discoverVenues({
+      center,
+      friends,
+      categories,
+      intent,
       country: req.body.country || "SGP",
-      limit: req.body.candidateLimit || 18
+      candidateLimit: req.body.candidateLimit || 18
     });
 
-    const uniquePlaces = [...new Map(venuePlaces.map((place) => [place.id, place])).values()].slice(0, 12);
+    const uniquePlaces = discovery.places.slice(0, 14);
     const candidates = [];
 
     for (const venue of uniquePlaces) {
@@ -559,7 +827,10 @@ app.post("/api/recommend", async (req, res, next) => {
       category: categories[0] || null,
       categories,
       intent,
-      venueKeyword,
+      venueKeywords: discovery.keywords,
+      venueKeyword: discovery.keywords[0],
+      searchRadiusKm: discovery.searchRadiusKm,
+      intentSignals: intentSignals(intent),
       generatedAt: new Date().toISOString(),
       results: sortAndShape(candidates, optimizeFor, capMinutes, tone)
     });

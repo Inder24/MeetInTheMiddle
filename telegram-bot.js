@@ -3,6 +3,7 @@ import "dotenv/config";
 const token = process.env.TELEGRAM_BOT_TOKEN;
 const apiBaseUrl = process.env.MEET_API_BASE_URL || `http://localhost:${process.env.PORT || 3000}`;
 const telegramBaseUrl = token ? `https://api.telegram.org/bot${token}` : null;
+const botUsername = "of_friend_bot";
 const sessions = new Map();
 const maxVoteOptions = 3;
 
@@ -49,15 +50,6 @@ const optimizeAliases = {
   resentment: "social"
 };
 
-const toneAliases = {
-  gentle: "gentle",
-  nice: "gentle",
-  spicy: "spicy",
-  roast: "spicy",
-  unhinged: "unhinged",
-  chaos: "unhinged"
-};
-
 const fillerWords = new Set(["at", "from", "near", "in", "to", "by", "via", "around"]);
 const commandAliases = {
   "/start": "/start",
@@ -72,8 +64,6 @@ const commandAliases = {
   "/goal": "/optimize",
   "/cap": "/cap",
   "/max": "/cap",
-  "/tone": "/tone",
-  "/roast": "/tone",
   "/add": "/add",
   "/friend": "/add",
   "/me": "/me",
@@ -101,9 +91,9 @@ function getSession(chatId) {
   if (!sessions.has(chatId)) {
     sessions.set(chatId, {
       category: "cafe",
+      intent: "",
       optimizeFor: "fair",
       capMinutes: 25,
-      tone: "spicy",
       friends: [],
       lastResults: [],
       votes: {}
@@ -124,10 +114,6 @@ function normalizeOptimize(value = "") {
   return optimizeAliases[value.trim().toLowerCase()] || null;
 }
 
-function normalizeTone(value = "") {
-  return toneAliases[value.trim().toLowerCase()] || null;
-}
-
 function tokenize(value = "") {
   return value
     .trim()
@@ -143,21 +129,22 @@ function parseMeetingSettings(args = "") {
   for (const token of tokenize(args)) {
     const vibe = normalizeVibe(token);
     const optimizeFor = normalizeOptimize(token);
-    const tone = normalizeTone(token);
     const capMatch = token.match(/^(\d{1,3})(?:m|min|mins|minutes)?$/i);
 
     if (vibe && !next.category) {
       next.category = vibe;
     } else if (optimizeFor && !next.optimizeFor) {
       next.optimizeFor = optimizeFor;
-    } else if (tone && !next.tone) {
-      next.tone = tone;
     } else if (capMatch && !next.capMinutes) {
       const cap = Number(capMatch[1]);
       if (cap >= 5 && cap <= 120) next.capMinutes = cap;
     } else {
       leftovers.push(token);
     }
+  }
+
+  if (leftovers.length) {
+    next.intent = leftovers.join(" ");
   }
 
   return { settings: next, leftovers };
@@ -174,9 +161,9 @@ function applySettings(session, settings = {}) {
 function settingsSummary(settings = {}) {
   const lines = [];
   if (settings.category) lines.push(`vibe <b>${settings.category}</b>`);
+  if (settings.intent) lines.push(`plan <b>${escapeHtml(settings.intent)}</b>`);
   if (settings.optimizeFor) lines.push(`optimize <b>${settings.optimizeFor}</b>`);
   if (settings.capMinutes) lines.push(`cap <b>${settings.capMinutes} min</b>`);
-  if (settings.tone) lines.push(`tone <b>${settings.tone}</b>`);
   return lines.join(", ");
 }
 
@@ -262,10 +249,11 @@ function displayName(user = {}) {
 function courtVerdict(result, index = 0) {
   const worst = result.routes.reduce((max, route) => (route.duration > max.duration ? route : max));
   const worstMinutes = Math.round(worst.duration / 60);
-  const totalMinutes = Math.round(result.stats.total / 60);
+  const combinedMinutes = Math.round(result.stats.total / 60);
   const spreadMinutes = Math.round(result.stats.imbalance / 60);
+  const trafficLights = result.routes.reduce((sum, route) => sum + Number(route.trafficLight || 0), 0);
   const verdict = index === 0 ? "Court-approved" : "Backup counsel";
-  return `${verdict}: ${escapeHtml(result.venue.name)} is ${result.fairnessScore}/100 fair. Total group pain is ${totalMinutes} min, spread is ${spreadMinutes} min, and ${escapeHtml(worst.friendName)} takes the biggest hit at ${worstMinutes} min.`;
+  return `${verdict}: ${escapeHtml(result.venue.name)} is ${result.fairnessScore}/100 fair. Everyone can arrive in about ${worstMinutes} min, spread is ${spreadMinutes} min, combined travel effort is ${combinedMinutes} min, ${trafficLights} traffic lights, and ${escapeHtml(worst.friendName)} takes the biggest hit.`;
 }
 
 function rankLabel(result, index) {
@@ -274,10 +262,10 @@ function rankLabel(result, index) {
 
 function formatHelp() {
   return [
-    "<b>MeetInTheMiddle bot</b>",
+    `<b>@${botUsername}</b>`,
     "",
-    "Plan a fair meetup from Telegram:",
-    "<code>/newmeet cafe fastest unhinged</code>",
+    "Plan a fair OnlyFriends meetup from Telegram:",
+    "<code>/newmeet cafe fastest quiet cheap</code>",
     "<code>/me bike at Tampines Singapore</code>",
     "<code>/add Asha | car | Orchard Road Singapore</code>",
     "<code>/add Ben bicycle from Tampines Singapore</code>",
@@ -288,7 +276,7 @@ function formatHelp() {
     "<b>Vibes:</b> cafe, food, mall, park, bar, dessert, coworking",
     "<b>Modes:</b> car, bicycle, walk",
     "<b>Vote:</b> after /rank, tap a venue button.",
-    "<b>Other commands:</b> /vibe, /optimize, /cap, /tone, /list, /remove, /clear"
+    "<b>Other commands:</b> /vibe, /optimize, /cap, /list, /remove, /clear"
   ].join("\n");
 }
 
@@ -408,7 +396,7 @@ async function handleMe(chatId, user, args) {
 function formatRankMessage(session, results) {
   const winner = results[0];
   const routeLines = winner.routes
-    .map((route) => `• ${escapeHtml(route.friendName)}: ${minutes(route.duration)}`)
+    .map((route) => `• ${escapeHtml(route.friendName)}: ${minutes(route.duration)} traffic-adjusted ETA, ${Number(route.trafficLight || 0)} lights`)
     .join("\n");
   const topThree = results.slice(0, maxVoteOptions)
     .map((result, index) => `${rankLabel(result, index)}\n   ${escapeHtml(result.venue.address || result.venue.category || "")}`)
@@ -417,6 +405,7 @@ function formatRankMessage(session, results) {
   return [
     `⚖️ <b>Fairness Court is in session</b>`,
     `Vibe: <b>${escapeHtml(session.category)}</b> · Optimize: <b>${escapeHtml(session.optimizeFor)}</b>`,
+    session.intent ? `Plan: <b>${escapeHtml(session.intent)}</b>` : "",
     "",
     `<b>Verdict</b>`,
     courtVerdict(winner),
@@ -430,11 +419,8 @@ function formatRankMessage(session, results) {
     `<b>Why</b>`,
     escapeHtml(winner.explanation),
     "",
-    `<b>Roast</b>`,
-    escapeHtml(winner.roast),
-    "",
     "Vote below. Democracy, but with ETAs."
-  ].join("\n");
+  ].filter((line) => line !== "").join("\n");
 }
 
 function voteKeyboard(results) {
@@ -461,11 +447,11 @@ async function handleRank(chatId, args = "") {
   await sendMessage(chatId, `Ranking live Grab Maps venues${parsedSummary ? ` with ${parsedSummary}` : ""}. Tiny robot legs are moving...`);
   const payload = {
     friends: session.friends.map(({ name, lat, lng, mode }) => ({ name, lat, lng, mode })),
-    category: session.category,
+    categories: [session.category],
+    intent: session.intent,
     optimizeFor: session.optimizeFor,
-    capMinutes: session.capMinutes,
-    tone: session.tone,
-    candidateLimit: 12
+    ...(session.optimizeFor === "capped" ? { capMinutes: session.capMinutes } : {}),
+    candidateLimit: 20
   };
   const data = await localApi("/api/recommend", {
     method: "POST",
@@ -544,14 +530,14 @@ async function handleMessage(message) {
       const vibe = settings.category || "cafe";
       sessions.set(chatId, {
         category: vibe,
+        intent: settings.intent || "",
         optimizeFor: settings.optimizeFor || "fair",
         capMinutes: settings.capMinutes || 25,
-        tone: settings.tone || "spicy",
         friends: [],
         lastResults: [],
         votes: {}
       });
-      const summary = settingsSummary({ category: vibe, optimizeFor: settings.optimizeFor, capMinutes: settings.capMinutes, tone: settings.tone });
+      const summary = settingsSummary({ category: vibe, intent: settings.intent, optimizeFor: settings.optimizeFor, capMinutes: settings.capMinutes });
       await sendMessage(chatId, `New meetup started${summary ? ` with ${summary}` : ""}. Add friends with <code>/add Name | mode | location</code> or <code>/me mode location</code>.`);
       return;
     }
@@ -588,17 +574,6 @@ async function handleMessage(message) {
       await sendMessage(chatId, `Max minutes cap set to <b>${cap}</b>.`);
       return;
     }
-    if (command === "/tone") {
-      const { settings } = parseMeetingSettings(args);
-      const tone = settings.tone;
-      if (!["gentle", "spicy", "unhinged"].includes(tone)) {
-        await sendMessage(chatId, "Choose one: gentle, spicy, unhinged.");
-        return;
-      }
-      session.tone = tone;
-      await sendMessage(chatId, `Roast tone set to <b>${tone}</b>.`);
-      return;
-    }
     if (command === "/add") {
       await handleAdd(chatId, args);
       return;
@@ -611,7 +586,7 @@ async function handleMessage(message) {
       const friends = session.friends.length
         ? session.friends.map((friend) => `• ${escapeHtml(friend.name)} (${modeLabel(friend.mode)}) - ${escapeHtml(friend.label)}`).join("\n")
         : "No friends yet.";
-      await sendMessage(chatId, `<b>Meetup</b>: ${session.category}, optimize ${session.optimizeFor}\n${friends}`);
+      await sendMessage(chatId, `<b>Meetup</b>: ${session.category}, optimize ${session.optimizeFor}${session.intent ? `, plan ${escapeHtml(session.intent)}` : ""}\n${friends}`);
       return;
     }
     if (command === "/remove") {
@@ -642,7 +617,7 @@ async function handleMessage(message) {
 async function poll() {
   requireToken();
   let offset = 0;
-  console.log(`Telegram bot polling. Local API: ${apiBaseUrl}`);
+  console.log(`Telegram bot @${botUsername} polling. Local API: ${apiBaseUrl}`);
 
   while (true) {
     try {
