@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express from "express";
+import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,6 +10,8 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const port = Number(process.env.PORT || 3000);
 const grabApiKey = process.env.GRABMAPS_API_KEY;
+const openAiApiKey = process.env.OPENAI_API_KEY;
+const openAiModel = process.env.OPENAI_MODEL || "gpt-4.1-mini";
 const grabBaseUrl = "https://maps.grab.com";
 
 app.use(express.json({ limit: "1mb" }));
@@ -20,6 +23,64 @@ function requireApiKey() {
     error.status = 500;
     throw error;
   }
+}
+
+function requireOpenAiKey() {
+  if (!openAiApiKey) {
+    const error = new Error("Missing OPENAI_API_KEY. Set it before using roast mode.");
+    error.status = 500;
+    throw error;
+  }
+}
+
+function runRoastAgent({ intent, tone = "spicy" }) {
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, "ai-agent", "roast_agent.py");
+    const child = spawn("python3", [scriptPath], {
+      env: {
+        ...process.env,
+        OPENAI_MODEL: openAiModel
+      }
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (code !== 0) {
+        const error = new Error(stderr.trim() || "Roast agent failed.");
+        error.status = 502;
+        reject(error);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stdout || "{}");
+        if (!parsed.roast) {
+          throw new Error("Roast agent returned an empty response.");
+        }
+        resolve(parsed);
+      } catch (error) {
+        error.status = 502;
+        reject(error);
+      }
+    });
+
+    child.stdin.write(JSON.stringify({ intent, tone }));
+    child.stdin.end();
+  });
 }
 
 async function grabRequest(pathname, params = {}) {
@@ -154,8 +215,8 @@ function routeProfile(mode) {
   }[mode] || "driving";
 }
 
-function venueSearchKeyword(category) {
-  const normalized = String(category || "cafe").toLowerCase();
+function venueKeywordForCategory(category) {
+  const normalized = String(category || "").toLowerCase();
   return {
     cafe: "cafe coffee",
     food: "restaurant food",
@@ -164,7 +225,18 @@ function venueSearchKeyword(category) {
     bar: "bar pub",
     dessert: "dessert ice cream bakery",
     coworking: "coworking workspace"
-  }[normalized] || "cafe coffee";
+  }[normalized] || "";
+}
+
+function venueSearchKeyword({ categories = [], intent = "" }) {
+  const normalizedCategories = categories
+    .map((category) => venueKeywordForCategory(category))
+    .filter(Boolean);
+  const parts = [
+    String(intent || "").trim(),
+    ...normalizedCategories
+  ].filter(Boolean);
+  return parts.length ? [...new Set(parts)].join(" ") : "cafe coffee";
 }
 
 function centerOf(friends) {
@@ -413,6 +485,25 @@ app.post("/api/route", async (req, res, next) => {
   }
 });
 
+app.post("/api/roast", async (req, res, next) => {
+  try {
+    requireOpenAiKey();
+    const intent = String(req.body.intent || "").trim();
+    if (intent.length < 8) {
+      res.status(400).json({ error: "Intent is too short. Add a few more details before roasting." });
+      return;
+    }
+
+    const result = await runRoastAgent({
+      intent,
+      tone: req.body.tone || "spicy"
+    });
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post("/api/recommend", async (req, res, next) => {
   try {
     const friends = (req.body.friends || []).filter(
@@ -424,8 +515,15 @@ app.post("/api/recommend", async (req, res, next) => {
     }
 
     const center = centerOf(friends);
-    const category = req.body.category || "cafe";
-    const venueKeyword = venueSearchKeyword(category);
+    const categories = Array.isArray(req.body.categories)
+      ? req.body.categories.filter((value) => typeof value === "string" && value.trim())
+      : [req.body.category].filter((value) => typeof value === "string" && value.trim());
+    const intent = String(req.body.intent || "").trim();
+    if (!intent && categories.length === 0) {
+      res.status(400).json({ error: "Provide a plan or at least one filter before launching." });
+      return;
+    }
+    const venueKeyword = venueSearchKeyword({ categories, intent });
     const optimizeFor = req.body.optimizeFor || "fair";
     const capMinutes = Number(req.body.capMinutes || 25);
     const tone = req.body.tone || "spicy";
@@ -458,7 +556,9 @@ app.post("/api/recommend", async (req, res, next) => {
 
     res.json({
       center,
-      category,
+      category: categories[0] || null,
+      categories,
+      intent,
       venueKeyword,
       generatedAt: new Date().toISOString(),
       results: sortAndShape(candidates, optimizeFor, capMinutes, tone)
