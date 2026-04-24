@@ -6,10 +6,13 @@ const friendSeeds = [
   { name: "Chloe", query: "Jurong East Singapore", mode: "bike", color: "#2c7be5" },
   { name: "Dev", query: "Marina Bay Sands", mode: "walk", color: "#f4bd38" }
 ];
+const friendPalette = ["#00b577", "#f45f4f", "#2c7be5", "#f4bd38", "#8b5cf6", "#14b8a6", "#ec4899", "#f97316"];
 
 const state = {
   friends: friendSeeds.map((seed) => ({
     ...seed,
+    placeholderQuery: seed.query,
+    query: "",
     selected: null,
     options: [],
     suggestions: [],
@@ -22,17 +25,24 @@ const state = {
   grabMap: null,
   mapReady: false,
   pendingDraw: false,
-  markers: []
+  markers: [],
+  roastSuggestion: ""
 };
 
 const friendsGrid = document.querySelector("#friends-grid");
 const form = document.querySelector("#planner-form");
 const searchAllButton = document.querySelector("#search-all");
+const addFriendButton = document.querySelector("#add-friend");
 const statusLine = document.querySelector("#status-line");
 const mapStatus = document.querySelector("#map-status");
 const resultsList = document.querySelector("#results-list");
 const shareCard = document.querySelector("#share-card");
 const categoryInput = document.querySelector("#category");
+const planIntentInput = document.querySelector("#plan-intent");
+const planIntentButton = document.querySelector("#plan-intent-button");
+const roastPlanButton = document.querySelector("#roast-plan-button");
+const acceptRoastButton = document.querySelector("#accept-roast-button");
+const roastText = document.querySelector("#roast-text");
 const suggestTimers = new Map();
 const suggestRequestIds = new Map();
 
@@ -114,7 +124,7 @@ function renderSuggestions(friend, index) {
 
 function renderFriends({ focusIndex } = {}) {
   friendsGrid.innerHTML = state.friends.map((friend, index) => `
-    <article class="friend-card">
+    <article class="friend-card" style="border-color:${friend.color}">
       <div class="friend-top">
         <label>
           Friend
@@ -124,7 +134,8 @@ function renderFriends({ focusIndex } = {}) {
           Mode
           <select data-friend-mode="${index}">
             <option value="car" ${friend.mode === "car" ? "selected" : ""}>Car</option>
-            <option value="bike" ${friend.mode === "bike" ? "selected" : ""}>Bicycle</option>
+            <option value="bike" ${friend.mode === "bike" ? "selected" : ""}>Bike</option>
+            <option value="public_transport" ${friend.mode === "public_transport" ? "selected" : ""}>Public Transport</option>
             <option value="walk" ${friend.mode === "walk" ? "selected" : ""}>Walk</option>
           </select>
         </label>
@@ -138,13 +149,16 @@ function renderFriends({ focusIndex } = {}) {
             autocomplete="off"
             aria-autocomplete="list"
             aria-expanded="${friend.suggestOpen ? "true" : "false"}"
-            placeholder="Start typing an address or place"
+            placeholder="${escapeHtml(friend.placeholderQuery || "Start typing an address or place")}"
           />
           ${renderSuggestions(friend, index)}
         </label>
         <button class="small-button" type="button" data-search-friend="${index}">Search</button>
       </div>
-      <p class="selected-place">${friend.selected ? `${friend.selected.name} (${friend.selected.lat.toFixed(4)}, ${friend.selected.lng.toFixed(4)})` : "Search and choose an origin."}</p>
+      <div class="friend-actions">
+        <button class="small-button remove-friend" type="button" data-remove-friend="${index}" ${state.friends.length <= 2 ? "disabled" : ""}>Remove</button>
+      </div>
+      <p class="selected-place">${friend.selected ? `${friend.selected.name} (${friend.selected.lat.toFixed(4)}, ${friend.selected.lng.toFixed(4)})` : ""}</p>
     </article>
   `).join("");
 
@@ -166,6 +180,63 @@ function updateFriendSuggestions(index) {
   const template = document.createElement("template");
   template.innerHTML = html.trim();
   field.append(template.content.firstElementChild);
+}
+
+function intentText() {
+  return (planIntentInput?.value || "").trim();
+}
+
+function updateRoastView(message, canAccept = false) {
+  roastText.textContent = message;
+  acceptRoastButton.disabled = !canAccept;
+}
+
+function draftRoastSuggestion(intent, tone) {
+  const mood = {
+    gentle: "Kindly optimized",
+    spicy: "Savagely optimized",
+    unhinged: "Chaotically optimized"
+  }[tone] || "Optimized";
+  const cleaned = intent.replace(/\s+/g, " ").trim();
+  const withPeriod = cleaned.endsWith(".") ? cleaned : `${cleaned}.`;
+  return `${mood} plan: ${withPeriod} Keep travel balanced, cap long routes, and prioritize one clear meetup decision.`;
+}
+
+function nextFriendColor() {
+  return friendPalette[state.friends.length % friendPalette.length];
+}
+
+function addFriend() {
+  const nextIndex = state.friends.length + 1;
+  state.friends.push({
+    name: `Friend ${nextIndex}`,
+    mode: "car",
+    color: nextFriendColor(),
+    placeholderQuery: `Friend ${nextIndex} location`,
+    query: "",
+    selected: null,
+    options: [],
+    suggestions: [],
+    suggestOpen: false,
+    isSuggesting: false
+  });
+  renderFriends({ focusIndex: state.friends.length - 1 });
+  drawMap();
+  setStatus(`Added Friend ${nextIndex}.`);
+}
+
+function removeFriend(index) {
+  if (state.friends.length <= 2) {
+    setStatus("At least two friends are required.");
+    return;
+  }
+  const [removed] = state.friends.splice(index, 1);
+  suggestTimers.forEach((timer) => clearTimeout(timer));
+  suggestTimers.clear();
+  suggestRequestIds.clear();
+  renderFriends();
+  drawMap();
+  setStatus(`${removed?.name || "Friend"} removed from crew.`);
 }
 
 async function api(path, options = {}) {
@@ -521,9 +592,20 @@ function renderResults() {
 
   const winner = state.results[0];
   shareCard.hidden = false;
+  const intent = intentText();
   shareCard.innerHTML = `
-    <h2>Winner: ${winner.venue.name}</h2>
-    <p>${winner.roast}</p>
+    <h2>Agreed place: ${winner.venue.name}</h2>
+    <p>${winner.explanation}</p>
+    <p class="meta">${intent ? `Intent: ${escapeHtml(intent)}` : "No intent entered yet."}</p>
+    <div class="route-bars">
+      ${winner.routes.map((route) => `
+        <div class="route-bar">
+          <strong>${route.friendName}</strong>
+          <div class="bar-track"><div class="bar-fill" style="width:${Math.max(8, route.duration / winner.stats.max * 100)}%"></div></div>
+          <span>${minutes(route.duration)}</span>
+        </div>
+      `).join("")}
+    </div>
   `;
 
   resultsList.innerHTML = state.results.map((result, index) => {
@@ -557,6 +639,12 @@ function renderResults() {
 async function recommend(event) {
   event.preventDefault();
   collectFriendInputs();
+  const intent = intentText();
+  if (!intent) {
+    setStatus("Add your intent first, then click Plan meetup.");
+    planIntentInput?.focus();
+    return;
+  }
   const friends = selectedFriendsPayload();
   if (friends.length < 2) {
     setStatus("Search and select at least two live friend origins first.");
@@ -572,9 +660,7 @@ async function recommend(event) {
       body: JSON.stringify({
         friends,
         category: categoryInput.value || "cafe",
-        optimizeFor: document.querySelector("#optimizeFor").value,
-        capMinutes: Number(document.querySelector("#capMinutes").value || 25),
-        tone: document.querySelector("#tone").value
+        optimizeFor: document.querySelector("#optimizeFor").value
       })
     });
     state.results = data.results;
@@ -589,7 +675,51 @@ async function recommend(event) {
   }
 }
 
+function startPlanFromIntent() {
+  const intent = intentText();
+  if (!intent) {
+    setStatus("Describe your plan intent before starting.");
+    planIntentInput?.focus();
+    return;
+  }
+  setStatus(`Intent captured: ${intent}`);
+}
+
+async function roastPlanIntent() {
+  const intent = intentText();
+  if (!intent) {
+    updateRoastView("Add intent text first so roast mode can suggest improvements.");
+    setStatus("Roast mode needs a plan intent.");
+    return;
+  }
+
+  roastPlanButton.disabled = true;
+  updateRoastView("Generating roast suggestion...", false);
+  try {
+    const tone = "spicy";
+    // TODO: Replace local suggestion with roast API response once endpoint is ready.
+    state.roastSuggestion = draftRoastSuggestion(intent, tone);
+    updateRoastView(state.roastSuggestion, true);
+    setStatus("Roast suggestion ready. Accept it to update the intent.");
+  } finally {
+    roastPlanButton.disabled = false;
+  }
+}
+
+function acceptRoastSuggestion() {
+  if (!state.roastSuggestion) return;
+  planIntentInput.value = state.roastSuggestion;
+  updateRoastView("Suggestion accepted. You can now click Plan meetup.");
+  setStatus("Roast suggestion accepted into plan intent.");
+}
+
 friendsGrid.addEventListener("click", (event) => {
+  const removeButton = event.target.closest("[data-remove-friend]");
+  if (removeButton) {
+    removeFriend(Number(removeButton.dataset.removeFriend));
+    return;
+  }
+
   const suggestion = event.target.closest("[data-suggest-place]");
   if (suggestion) {
     const [friendIndex, suggestionIndex] = suggestion.dataset.suggestPlace.split(":").map(Number);
@@ -631,17 +761,32 @@ resultsList.addEventListener("click", (event) => {
 });
 
 form.addEventListener("click", (event) => {
-  const chip = event.target.closest("[data-category]");
-  if (!chip) return;
-  categoryInput.value = chip.dataset.category;
-  form.querySelectorAll(".vibe-chip").forEach((button) => {
-    button.classList.toggle("is-active", button === chip);
-  });
-  setStatus(`Venue vibe set to ${chip.textContent.trim()}.`);
+  const categoryChip = event.target.closest("[data-category]");
+  if (categoryChip) {
+    categoryInput.value = categoryChip.dataset.category;
+    form.querySelectorAll("[data-category]").forEach((button) => {
+      button.classList.toggle("is-active", button === categoryChip);
+    });
+    setStatus(`Venue vibe set to ${categoryChip.textContent.trim()}.`);
+    return;
+  }
+
+  const optimizeChip = event.target.closest("[data-optimize]");
+  if (optimizeChip) {
+    document.querySelector("#optimizeFor").value = optimizeChip.dataset.optimize;
+    form.querySelectorAll("[data-optimize]").forEach((button) => {
+      button.classList.toggle("is-active", button === optimizeChip);
+    });
+    setStatus(`Squad priority set to ${optimizeChip.textContent.trim()}.`);
+  }
 });
 
 form.addEventListener("submit", recommend);
 searchAllButton.addEventListener("click", () => searchAllFriends().catch((error) => setStatus(error.message)));
+addFriendButton.addEventListener("click", addFriend);
+planIntentButton.addEventListener("click", startPlanFromIntent);
+roastPlanButton.addEventListener("click", () => roastPlanIntent().catch((error) => setStatus(error.message)));
+acceptRoastButton.addEventListener("click", acceptRoastSuggestion);
 
 renderFriends();
 try {

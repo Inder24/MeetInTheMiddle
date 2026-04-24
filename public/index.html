@@ -3,100 +3,111 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Meet Me Halfway POC</title>
+    <title>OnlyFriends</title>
     <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="app-shell">
-      <section class="planner-panel">
+      <section class="top-panel">
         <header class="app-header">
           <div>
-            <p class="eyebrow">Grab Maps POC</p>
-            <h1>Meet Me Halfway</h1>
+            <h1>OnlyFriends</h1>
           </div>
-          <p>Fair meetup picks from live travel time, with just enough chaos for the group chat.</p>
+          <p>Plot the plan, roast the chaos, and lock the best meetup with live routes.</p>
         </header>
 
         <form id="planner-form" class="planner-form">
           <div class="section-heading">
             <span>1</span>
-            <strong>Friends</strong>
+            <strong>Gameplan</strong>
           </div>
-          <div class="friends-grid" id="friends-grid"></div>
+          <div class="intent-roast-grid">
+            <div class="intent-column">
+              <div class="vibe-control form-field">
+                <span class="field-label">Venue vibe</span>
+                <input id="category" name="category" type="hidden" value="cafe" />
+                <div class="vibe-chips" role="group" aria-label="Venue vibe">
+                  <button class="vibe-chip is-active" type="button" data-category="cafe" title="Cozy cafes and coffee-first meetup spots.">Coffee Date</button>
+                  <button class="vibe-chip" type="button" data-category="food" title="Meal-focused places where the group can sit and eat.">Feast Mode</button>
+                  <button class="vibe-chip" type="button" data-category="mall" title="Indoor hangouts around malls and shopping hubs.">Retail Therapy</button>
+                  <button class="vibe-chip" type="button" data-category="park" title="Greener outdoor places like parks, gardens, and trails.">Touch Grass</button>
+                  <button class="vibe-chip" type="button" data-category="bar" title="Evening-friendly bars, pubs, and social drink spots.">After Hours</button>
+                  <button class="vibe-chip" type="button" data-category="dessert" title="Dessert-led picks like bakeries and ice cream joints.">Sweet Tooth</button>
+                  <button class="vibe-chip" type="button" data-category="coworking" title="Productive venues for chat + laptop time.">Hustle Spot</button>
+                </div>
+              </div>
+              <div class="vibe-control form-field">
+                <span class="field-label">Squad Priority</span>
+                <input id="optimizeFor" name="optimizeFor" type="hidden" value="fair" />
+                <div class="vibe-chips optimize-chips" role="group" aria-label="Squad priority mode">
+                  <button class="vibe-chip optimize-chip is-active" type="button" data-optimize="fair" title="Peacekeeper keeps travel times balanced so no one gets the painful route.">Peacekeeper</button>
+                  <button class="vibe-chip optimize-chip" type="button" data-optimize="fastest" title="Speedrun picks the option with the shortest total group travel time.">Speedrun</button>
+                  <button class="vibe-chip optimize-chip" type="button" data-optimize="capped" title="No One Stranded avoids plans where any one friend has a very long trip.">No One Stranded</button>
+                  <button class="vibe-chip optimize-chip" type="button" data-optimize="social" title="Drama Saver favors socially balanced plans with lower fairness friction.">Drama Saver</button>
+                </div>
+              </div>
+              <p class="intent-box-title">Your move</p>
+              <textarea
+                class="plan-text"
+                id="plan-intent"
+                name="planIntent"
+                rows="4"
+                autocomplete="off"
+                aria-label="Plan intent"
+              >We want a chill cafe with good food and equal travel effort.</textarea>
+              <div class="intent-actions">
+                <button class="secondary-action" id="roast-plan-button" type="button">Roast this plan</button>
+                <button class="primary-action" id="plan-intent-button" type="button">Lock intent</button>
+              </div>
+            </div>
+            <div class="roast-column">
+              <p class="intent-box-title">Roast radar</p>
+              <p class="roast-text" id="roast-text">Roast mode is ready. Click "Roast this plan" to see suggestions.</p>
+              <button class="secondary-action" id="accept-roast-button" type="button" disabled>Accept suggestion</button>
+            </div>
+          </div>
 
           <div class="section-heading">
             <span>2</span>
-            <strong>Plan</strong>
+            <strong>Crew setup</strong>
           </div>
-          <div class="controls-grid">
-            <div class="vibe-control form-field">
-              <span class="field-label">Venue vibe</span>
-              <input id="category" name="category" type="hidden" value="cafe" />
-              <div class="vibe-chips" role="group" aria-label="Venue vibe">
-                <button class="vibe-chip is-active" type="button" data-category="cafe">Cafe</button>
-                <button class="vibe-chip" type="button" data-category="food">Food</button>
-                <button class="vibe-chip" type="button" data-category="mall">Mall</button>
-                <button class="vibe-chip" type="button" data-category="park">Park / Nature</button>
-                <button class="vibe-chip" type="button" data-category="bar">Bar</button>
-                <button class="vibe-chip" type="button" data-category="dessert">Dessert</button>
-                <button class="vibe-chip" type="button" data-category="coworking">Coworking</button>
-              </div>
-            </div>
-            <label class="tooltip-field">
-              <span class="label-with-help">
-                Optimize
-                <button class="help-dot" type="button" aria-describedby="optimize-help" aria-label="What does optimize do?">?</button>
-              </span>
-              <span class="tooltip-card" id="optimize-help" role="tooltip">
-                <strong>Most fair:</strong> minimizes the longest trip and imbalance.
-                <strong>Fastest:</strong> minimizes total group travel time.
-                <strong>Nobody over cap:</strong> penalizes venues above max minutes.
-                <strong>Cheapest socially:</strong> minimizes resentment from uneven travel.
-              </span>
-              <select id="optimizeFor" name="optimizeFor">
-                <option value="fair">Most fair</option>
-                <option value="fastest">Fastest overall</option>
-                <option value="capped">Nobody over cap</option>
-                <option value="social">Cheapest socially</option>
-              </select>
-            </label>
-            <label>
-              Max minutes
-              <input id="capMinutes" name="capMinutes" type="number" min="5" max="90" value="25" />
-            </label>
-            <label>
-              Roast tone
-              <select id="tone" name="tone">
-                <option value="gentle">Gentle</option>
-                <option value="spicy" selected>Spicy</option>
-                <option value="unhinged">Unhinged</option>
-              </select>
-            </label>
+          <div class="crew-toolbar">
+            <button class="secondary-action" id="add-friend" type="button">+ Add friend</button>
           </div>
+          <div class="friends-grid" id="friends-grid"></div>
 
           <div class="action-row">
             <button class="secondary-action" id="search-all" type="button">Search all origins</button>
-            <button class="primary-action" type="submit">Rank meetup spots</button>
+            <button class="primary-action" type="submit">Launch meetup plan</button>
           </div>
         </form>
       </section>
 
-      <section class="map-panel">
-        <div id="map"></div>
-        <div class="map-status" id="map-status">Loading Grab map...</div>
+      <section class="map-board">
+        <section class="map-panel">
+          <div id="map"></div>
+          <div class="map-status" id="map-status">Loading Grab map...</div>
+        </section>
+
+        <aside class="lane-panel">
+          <div class="section-heading">
+            <span>3</span>
+            <strong>Hot picks lane</strong>
+          </div>
+          <div class="results-list" id="results-list"></div>
+        </aside>
       </section>
 
-      <section class="results-panel">
+      <section class="summary-panel">
         <header class="results-header">
           <div>
-            <p class="eyebrow">Live ranking</p>
-            <h2>Venue board</h2>
+            <p class="eyebrow">Squad consensus</p>
+            <h2>Top pick snapshot</h2>
           </div>
           <span class="status-pill" id="status-line">Ready</span>
         </header>
         <div class="share-card" id="share-card" hidden></div>
-        <div class="results-list" id="results-list"></div>
       </section>
     </main>
 
