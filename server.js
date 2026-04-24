@@ -60,6 +60,86 @@ async function grabRequest(pathname, params = {}) {
   return body;
 }
 
+function proxiedGrabAssetUrl(value, publicOrigin = "") {
+  if (typeof value !== "string") return value;
+  try {
+    const url = new URL(value, grabBaseUrl);
+    if (url.origin !== grabBaseUrl) {
+      return value;
+    }
+
+    const assetPath = url.pathname.startsWith("/api/maps/tiles/v2/")
+      ? url.pathname
+      : url.pathname.startsWith("/maps/tiles/v2/")
+        ? `/api${url.pathname}`
+        : null;
+
+    if (!assetPath) return value;
+    return `${publicOrigin}/api/grab-assets${decodeURI(assetPath)}${url.search}`;
+  } catch {
+    return value;
+  }
+}
+
+function proxiedGrabStyle(style, publicOrigin = "") {
+  const nextStyle = structuredClone(style);
+  nextStyle.sprite = proxiedGrabAssetUrl(nextStyle.sprite, publicOrigin);
+  nextStyle.glyphs = proxiedGrabAssetUrl(nextStyle.glyphs, publicOrigin);
+
+  Object.values(nextStyle.sources || {}).forEach((source) => {
+    if (Array.isArray(source.tiles)) {
+      source.tiles = source.tiles.map((tileUrl) => proxiedGrabAssetUrl(tileUrl, publicOrigin));
+    }
+    if (source.url) {
+      source.url = proxiedGrabAssetUrl(source.url, publicOrigin);
+    }
+  });
+
+  return nextStyle;
+}
+
+async function proxyGrabAsset(req, res, next) {
+  try {
+    requireApiKey();
+    const assetPath = req.params[0]?.startsWith("maps/tiles/v2/")
+      ? `api/${req.params[0]}`
+      : req.params[0];
+    if (!assetPath?.startsWith("api/maps/tiles/v2/")) {
+      res.status(404).json({ error: "Unsupported Grab asset path" });
+      return;
+    }
+
+    const url = new URL(`/${assetPath}`, grabBaseUrl);
+    Object.entries(req.query).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, item));
+        return;
+      }
+      if (value !== undefined) url.searchParams.set(key, String(value));
+    });
+
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${grabApiKey}`,
+        Accept: req.get("accept") || "*/*"
+      }
+    });
+
+    if (!response.ok) {
+      res.status(response.status).send(await response.text());
+      return;
+    }
+
+    const contentType = response.headers.get("content-type");
+    const cacheControl = response.headers.get("cache-control") || "public, max-age=300";
+    if (contentType) res.type(contentType);
+    res.set("Cache-Control", cacheControl);
+    res.send(Buffer.from(await response.arrayBuffer()));
+  } catch (error) {
+    next(error);
+  }
+}
+
 function routeProfile(mode) {
   return {
     car: "driving",
@@ -252,11 +332,14 @@ app.get("/api/client-config", (req, res, next) => {
 app.get("/api/style.json", async (req, res, next) => {
   try {
     const style = await grabRequest("/api/style.json", { theme: req.query.theme || "basic" });
-    res.json(style);
+    const publicOrigin = `${req.protocol}://${req.get("host")}`;
+    res.json(proxiedGrabStyle(style, publicOrigin));
   } catch (error) {
     next(error);
   }
 });
+
+app.get("/api/grab-assets/*", proxyGrabAsset);
 
 app.get("/api/search", async (req, res, next) => {
   try {

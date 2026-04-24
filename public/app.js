@@ -1,5 +1,3 @@
-import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
-
 const friendSeeds = [
   { name: "Asha", query: "Orchard Road Singapore", mode: "car", color: "#00b577" },
   { name: "Ben", query: "Tampines Singapore", mode: "motorcycle", color: "#f45f4f" },
@@ -33,7 +31,7 @@ const mapStatus = document.querySelector("#map-status");
 const resultsList = document.querySelector("#results-list");
 const shareCard = document.querySelector("#share-card");
 const suggestTimers = new Map();
-let suggestRequestId = 0;
+const suggestRequestIds = new Map();
 
 function minutes(seconds) {
   return `${Math.round(seconds / 60)} min`;
@@ -159,6 +157,23 @@ function renderFriends({ focusIndex } = {}) {
   if (Number.isInteger(focusIndex)) focusOriginInput(focusIndex);
 }
 
+function updateFriendSuggestions(index) {
+  const friend = state.friends[index];
+  const input = document.querySelector(`[data-friend-query="${index}"]`);
+  const field = input?.closest(".origin-field");
+  if (!field) return;
+
+  field.querySelector(".autocomplete-panel")?.remove();
+  input.setAttribute("aria-expanded", friend.suggestOpen ? "true" : "false");
+
+  const html = renderSuggestions(friend, index);
+  if (!html) return;
+
+  const template = document.createElement("template");
+  template.innerHTML = html.trim();
+  field.append(template.content.firstElementChild);
+}
+
 async function api(path, options = {}) {
   const response = await fetch(path, {
     ...options,
@@ -209,17 +224,17 @@ async function suggestFriend(index, requestId) {
 
   try {
     const data = await api(`/api/suggest?keyword=${encodeURIComponent(keyword)}&country=SGP&limit=5`);
-    if (requestId !== suggestRequestId) return;
+    if (requestId !== suggestRequestIds.get(index)) return;
     friend.suggestions = data.places;
     friend.isSuggesting = false;
     friend.suggestOpen = true;
-    renderFriends({ focusIndex: index });
+    updateFriendSuggestions(index);
   } catch (error) {
-    if (requestId !== suggestRequestId) return;
+    if (requestId !== suggestRequestIds.get(index)) return;
     friend.suggestions = [];
     friend.isSuggesting = false;
     friend.suggestOpen = true;
-    renderFriends({ focusIndex: index });
+    updateFriendSuggestions(index);
     setStatus(`Autocomplete unavailable for ${friend.name}: ${error.message}`);
   }
 }
@@ -232,14 +247,16 @@ function queueSuggest(index) {
     friend.suggestions = [];
     friend.suggestOpen = false;
     friend.isSuggesting = false;
-    renderFriends({ focusIndex: index });
+    suggestRequestIds.set(index, (suggestRequestIds.get(index) || 0) + 1);
+    updateFriendSuggestions(index);
     return;
   }
 
   friend.suggestOpen = true;
   friend.isSuggesting = true;
-  renderFriends({ focusIndex: index });
-  const requestId = ++suggestRequestId;
+  updateFriendSuggestions(index);
+  const requestId = (suggestRequestIds.get(index) || 0) + 1;
+  suggestRequestIds.set(index, requestId);
   suggestTimers.set(index, setTimeout(() => suggestFriend(index, requestId), 220));
 }
 
@@ -328,45 +345,36 @@ function lineFeature(route, color) {
 
 async function initMap() {
   setMapStatus("Loading Grab map...");
-  try {
-    const config = await api("/api/client-config");
-    const style = await api("/api/style.json?theme=basic");
-    style.glyphs = "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf";
-    const client = new GrabMapsBuilder()
-      .setBaseUrl(config.grabMapsBaseUrl)
-      .setApiKey(config.grabMapsApiKey)
-      .build();
-    const grabMap = await new MapBuilder(client)
-      .setContainer("map")
-      .setCenter([103.8198, 1.3521])
-      .setZoom(10)
-      .setStyle(style)
-      .enableNavigation()
-      .enableAttribution()
-      .enableBuildings()
-      .enableLabels()
-      .build();
-    state.grabMap = grabMap;
-    state.map = grabMap.getMap();
-  } catch (error) {
-    console.warn("GrabMaps library map failed; falling back to authenticated MapLibre style.", error);
-    const style = await api("/api/style.json?theme=basic");
-    state.map = new maplibregl.Map({
-      container: "map",
-      style,
-      center: [103.8198, 1.3521],
-      zoom: 10
-    });
-    state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-    setMapStatus("GrabMaps library had trouble loading, so the POC is using the same Grab style through MapLibre.");
-  }
+  const mapCenter = [103.8198, 1.3521];
+  const style = await api("/api/style.json?theme=basic");
+  state.map = new maplibregl.Map({
+    container: "map",
+    style,
+    center: mapCenter,
+    zoom: 10,
+    attributionControl: false
+  });
+  state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
+  state.map.addControl(new maplibregl.AttributionControl({
+    compact: true,
+    customAttribution: "© Grab | © OpenStreetMap contributors"
+  }));
 
   if (!state.map.loaded()) {
-    await new Promise((resolve) => state.map.once("load", resolve));
+    await new Promise((resolve) => {
+      const timeout = setTimeout(resolve, 3500);
+      state.map.once("load", () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+    });
   }
   state.mapReady = true;
+  state.map.resize();
+  requestAnimationFrame(() => state.map?.resize());
   setMapStatus("", false);
   ensureRoutesLayer();
+  window.addEventListener("resize", () => state.map?.resize());
   state.map.on("styledata", ensureRoutesLayer);
   state.map.on("idle", () => {
     if (!state.pendingDraw) return;
@@ -612,7 +620,7 @@ friendsGrid.addEventListener("focusin", (event) => {
   const index = Number(input.dataset.friendQuery);
   if (state.friends[index].suggestions.length) {
     state.friends[index].suggestOpen = true;
-    renderFriends({ focusIndex: index });
+    updateFriendSuggestions(index);
   }
 });
 
