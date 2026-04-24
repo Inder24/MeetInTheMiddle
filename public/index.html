@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Meet Me Halfway POC</title>
+    <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="planner-panel">
+        <header class="app-header">
+          <div>
+            <p class="eyebrow">Grab Maps POC</p>
+            <h1>Meet Me Halfway</h1>
+          </div>
+          <p>Fair meetup picks from live travel time, with just enough chaos for the group chat.</p>
+        </header>
+
+        <form id="planner-form" class="planner-form">
+          <div class="section-heading">
+            <span>1</span>
+            <strong>Friends</strong>
+          </div>
+          <div class="friends-grid" id="friends-grid"></div>
+
+          <div class="section-heading">
+            <span>2</span>
+            <strong>Plan</strong>
+          </div>
+          <div class="controls-grid">
+            <label>
+              Venue vibe
+              <input id="category" name="category" value="cafe" autocomplete="off" />
+            </label>
+            <label>
+              Optimize
+              <select id="optimizeFor" name="optimizeFor">
+                <option value="fair">Most fair</option>
+                <option value="fastest">Fastest overall</option>
+                <option value="capped">Nobody over cap</option>
+                <option value="social">Cheapest socially</option>
+              </select>
+            </label>
+            <label>
+              Max minutes
+              <input id="capMinutes" name="capMinutes" type="number" min="5" max="90" value="25" />
+            </label>
+            <label>
+              Roast tone
+              <select id="tone" name="tone">
+                <option value="gentle">Gentle</option>
+                <option value="spicy" selected>Spicy</option>
+                <option value="unhinged">Unhinged</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="action-row">
+            <button class="secondary-action" id="search-all" type="button">Search all origins</button>
+            <button class="primary-action" type="submit">Rank meetup spots</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="map-panel">
+        <div id="map"></div>
+        <div class="map-status" id="map-status">Loading Grab map...</div>
+      </section>
+
+      <section class="results-panel">
+        <header class="results-header">
+          <div>
+            <p class="eyebrow">Live ranking</p>
+            <h2>Venue board</h2>
+          </div>
+          <span class="status-pill" id="status-line">Ready</span>
+        </header>
+        <div class="share-card" id="share-card" hidden></div>
+        <div class="results-list" id="results-list"></div>
+      </section>
+    </main>
+
+    <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
