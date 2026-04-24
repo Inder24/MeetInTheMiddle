@@ -20,15 +20,15 @@
         <form id="planner-form" class="planner-form">
           <div class="section-heading">
             <span>1</span>
-            <strong>Gameplan</strong>
+            <strong id="heading-gameplan">Gameplan</strong>
           </div>
           <div class="intent-roast-grid">
             <div class="intent-column">
               <div class="vibe-control form-field">
                 <span class="field-label">Venue vibe</span>
-                <input id="category" name="category" type="hidden" value="cafe" />
+                <input id="category" name="category" type="hidden" value="" />
                 <div class="vibe-chips" role="group" aria-label="Venue vibe">
-                  <button class="vibe-chip is-active" type="button" data-category="cafe" title="Cozy cafes and coffee-first meetup spots.">Coffee Date</button>
+                  <button class="vibe-chip" type="button" data-category="cafe" title="Cozy cafes and coffee-first meetup spots.">Coffee Date</button>
                   <button class="vibe-chip" type="button" data-category="food" title="Meal-focused places where the group can sit and eat.">Feast Mode</button>
                   <button class="vibe-chip" type="button" data-category="mall" title="Indoor hangouts around malls and shopping hubs.">Retail Therapy</button>
                   <button class="vibe-chip" type="button" data-category="park" title="Greener outdoor places like parks, gardens, and trails.">Touch Grass</button>
@@ -39,9 +39,9 @@
               </div>
               <div class="vibe-control form-field">
                 <span class="field-label">Squad Priority</span>
-                <input id="optimizeFor" name="optimizeFor" type="hidden" value="fair" />
+                <input id="optimizeFor" name="optimizeFor" type="hidden" value="" />
                 <div class="vibe-chips optimize-chips" role="group" aria-label="Squad priority mode">
-                  <button class="vibe-chip optimize-chip is-active" type="button" data-optimize="fair" title="Peacekeeper keeps travel times balanced so no one gets the painful route.">Peacekeeper</button>
+                  <button class="vibe-chip optimize-chip" type="button" data-optimize="fair" title="Peacekeeper keeps travel times balanced so no one gets the painful route.">Peacekeeper</button>
                   <button class="vibe-chip optimize-chip" type="button" data-optimize="fastest" title="Speedrun picks the option with the shortest total group travel time.">Speedrun</button>
                   <button class="vibe-chip optimize-chip" type="button" data-optimize="capped" title="No One Stranded avoids plans where any one friend has a very long trip.">No One Stranded</button>
                   <button class="vibe-chip optimize-chip" type="button" data-optimize="social" title="Drama Saver favors socially balanced plans with lower fairness friction.">Drama Saver</button>
@@ -55,36 +55,32 @@
                 rows="4"
                 autocomplete="off"
                 aria-label="Plan intent"
-              >We want a chill cafe with good food and equal travel effort.</textarea>
+                placeholder="Optional: add custom details for your meetup vibe..."
+              ></textarea>
               <div class="intent-actions">
-                <button class="secondary-action" id="roast-plan-button" type="button">Roast this plan</button>
-                <button class="primary-action" id="plan-intent-button" type="button">Lock intent</button>
+                <button class="primary-action" id="plan-intent-button" type="button">Lock Gameplan</button>
               </div>
             </div>
-            <div class="roast-column">
-              <p class="intent-box-title">Roast radar</p>
-              <p class="roast-text" id="roast-text">Roast mode is ready. Click "Roast this plan" to see suggestions.</p>
-              <button class="secondary-action" id="accept-roast-button" type="button" disabled>Accept suggestion</button>
+          </div>
+
+          <div class="flow-step is-hidden" id="step-crew">
+            <div class="section-heading">
+              <span>2</span>
+              <strong id="heading-crew">Crew setup</strong>
             </div>
-          </div>
+            <div class="crew-toolbar">
+              <button class="secondary-action" id="add-friend" type="button">+ Add friend</button>
+            </div>
+            <div class="friends-grid" id="friends-grid"></div>
 
-          <div class="section-heading">
-            <span>2</span>
-            <strong>Crew setup</strong>
-          </div>
-          <div class="crew-toolbar">
-            <button class="secondary-action" id="add-friend" type="button">+ Add friend</button>
-          </div>
-          <div class="friends-grid" id="friends-grid"></div>
-
-          <div class="action-row">
-            <button class="secondary-action" id="search-all" type="button">Search all origins</button>
-            <button class="primary-action" type="submit">Launch meetup plan</button>
+            <div class="action-row single-action">
+              <button class="primary-action" type="submit">Launch meetup plan</button>
+            </div>
           </div>
         </form>
       </section>
 
-      <section class="map-board">
+      <section class="map-board experience-stage is-locked" id="step-map-board">
         <section class="map-panel">
           <div id="map"></div>
           <div class="map-status" id="map-status">Loading Grab map...</div>
@@ -93,13 +89,13 @@
         <aside class="lane-panel">
           <div class="section-heading">
             <span>3</span>
-            <strong>Hot picks lane</strong>
+            <strong id="heading-picks">Hot picks lane</strong>
           </div>
           <div class="results-list" id="results-list"></div>
         </aside>
       </section>
 
-      <section class="summary-panel">
+      <section class="summary-panel experience-stage is-locked" id="step-summary">
         <header class="results-header">
           <div>
             <p class="eyebrow">Squad consensus</p>
@@ -108,6 +104,17 @@
           <span class="status-pill" id="status-line">Ready</span>
         </header>
         <div class="share-card" id="share-card" hidden></div>
+      </section>
+
+      <section class="roast-panel experience-stage is-locked" id="roast-panel">
+        <div class="section-heading">
+          <span>4</span>
+          <strong id="heading-roast">Final roast</strong>
+        </div>
+        <div class="intent-actions">
+          <button class="secondary-action" id="roast-plan-button" type="button">Roast my plan</button>
+        </div>
+        <p class="roast-text" id="roast-text">Click Roast my plan to generate your AI roast.</p>
       </section>
     </main>
 

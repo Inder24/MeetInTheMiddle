@@ -26,23 +26,32 @@ const state = {
   mapReady: false,
   pendingDraw: false,
   markers: [],
-  roastSuggestion: ""
+  roastSuggestion: "",
+  gameplanLocked: false,
+  selectedCategories: [],
+  optimizeFor: ""
 };
 
 const friendsGrid = document.querySelector("#friends-grid");
 const form = document.querySelector("#planner-form");
-const searchAllButton = document.querySelector("#search-all");
 const addFriendButton = document.querySelector("#add-friend");
 const statusLine = document.querySelector("#status-line");
 const mapStatus = document.querySelector("#map-status");
 const resultsList = document.querySelector("#results-list");
 const shareCard = document.querySelector("#share-card");
+const crewStep = document.querySelector("#step-crew");
+const mapBoardStep = document.querySelector("#step-map-board");
+const summaryStep = document.querySelector("#step-summary");
+const roastPanel = document.querySelector("#roast-panel");
 const categoryInput = document.querySelector("#category");
 const planIntentInput = document.querySelector("#plan-intent");
 const planIntentButton = document.querySelector("#plan-intent-button");
 const roastPlanButton = document.querySelector("#roast-plan-button");
-const acceptRoastButton = document.querySelector("#accept-roast-button");
 const roastText = document.querySelector("#roast-text");
+const stepHeadingGameplan = document.querySelector("#heading-gameplan");
+const stepHeadingCrew = document.querySelector("#heading-crew");
+const stepHeadingPicks = document.querySelector("#heading-picks");
+const stepHeadingRoast = document.querySelector("#heading-roast");
 const suggestTimers = new Map();
 const suggestRequestIds = new Map();
 
@@ -61,6 +70,42 @@ function setStatus(message) {
 function setMapStatus(message, visible = true) {
   mapStatus.textContent = message;
   mapStatus.classList.toggle("is-visible", visible);
+}
+
+function smoothScrollTo(element) {
+  if (!element) return;
+  element.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function unlockCrewStep() {
+  crewStep.classList.remove("is-hidden");
+  setActiveStep("crew");
+  setTimeout(() => smoothScrollTo(crewStep), 120);
+}
+
+function unlockExperienceStage() {
+  [mapBoardStep, summaryStep, roastPanel].forEach((section) => {
+    section.classList.remove("is-locked");
+    section.classList.add("is-ready");
+  });
+  setActiveStep("picks");
+  setTimeout(() => {
+    state.map?.resize();
+    smoothScrollTo(mapBoardStep);
+  }, 120);
+}
+
+function setActiveStep(step) {
+  const mapping = {
+    gameplan: stepHeadingGameplan,
+    crew: stepHeadingCrew,
+    picks: stepHeadingPicks,
+    roast: stepHeadingRoast
+  };
+  Object.values(mapping).forEach((node) => {
+    node?.closest(".section-heading")?.classList.remove("is-current");
+  });
+  mapping[step]?.closest(".section-heading")?.classList.add("is-current");
 }
 
 function isValidNumber(value) {
@@ -186,20 +231,12 @@ function intentText() {
   return (planIntentInput?.value || "").trim();
 }
 
-function updateRoastView(message, canAccept = false) {
-  roastText.textContent = message;
-  acceptRoastButton.disabled = !canAccept;
+function hasPlanningInputs() {
+  return intentText().length > 0 || state.selectedCategories.length > 0 || Boolean(state.optimizeFor);
 }
 
-function draftRoastSuggestion(intent, tone) {
-  const mood = {
-    gentle: "Kindly optimized",
-    spicy: "Savagely optimized",
-    unhinged: "Chaotically optimized"
-  }[tone] || "Optimized";
-  const cleaned = intent.replace(/\s+/g, " ").trim();
-  const withPeriod = cleaned.endsWith(".") ? cleaned : `${cleaned}.`;
-  return `${mood} plan: ${withPeriod} Keep travel balanced, cap long routes, and prioritize one clear meetup decision.`;
+function updateRoastView(message) {
+  roastText.textContent = message;
 }
 
 function nextFriendColor() {
@@ -323,19 +360,6 @@ function queueSuggest(index) {
   const requestId = (suggestRequestIds.get(index) || 0) + 1;
   suggestRequestIds.set(index, requestId);
   suggestTimers.set(index, setTimeout(() => suggestFriend(index, requestId), 220));
-}
-
-async function searchAllFriends() {
-  collectFriendInputs();
-  searchAllButton.disabled = true;
-  try {
-    for (let index = 0; index < state.friends.length; index += 1) {
-      await searchFriend(index);
-    }
-    setStatus("All four origins are selected from live Grab Maps search.");
-  } finally {
-    searchAllButton.disabled = false;
-  }
 }
 
 function collectFriendInputs() {
@@ -638,11 +662,15 @@ function renderResults() {
 
 async function recommend(event) {
   event.preventDefault();
+  if (!state.gameplanLocked) {
+    setStatus("Lock your gameplan first, then launch meetup plan.");
+    startPlanFromIntent();
+    return;
+  }
   collectFriendInputs();
   const intent = intentText();
-  if (!intent) {
-    setStatus("Add your intent first, then click Plan meetup.");
-    planIntentInput?.focus();
+  if (!hasPlanningInputs()) {
+    setStatus("Select at least one filter or add a plan before launching.");
     return;
   }
   const friends = selectedFriendsPayload();
@@ -659,12 +687,14 @@ async function recommend(event) {
       method: "POST",
       body: JSON.stringify({
         friends,
-        category: categoryInput.value || "cafe",
-        optimizeFor: document.querySelector("#optimizeFor").value
+        intent,
+        categories: state.selectedCategories,
+        optimizeFor: state.optimizeFor || undefined
       })
     });
     state.results = data.results;
     state.activeIndex = 0;
+    unlockExperienceStage();
     renderResults();
     drawMap();
     setStatus(data.results.length ? `Ranked ${data.results.length} live venues from Grab Maps.` : "No routable live venues found for this setup.");
@@ -676,41 +706,54 @@ async function recommend(event) {
 }
 
 function startPlanFromIntent() {
-  const intent = intentText();
-  if (!intent) {
-    setStatus("Describe your plan intent before starting.");
+  if (!hasPlanningInputs()) {
+    setStatus("Pick at least one filter or type a plan to continue.");
     planIntentInput?.focus();
     return;
   }
-  setStatus(`Intent captured: ${intent}`);
+  if (!state.gameplanLocked) {
+    state.gameplanLocked = true;
+    unlockCrewStep();
+  }
+  const intent = intentText();
+  if (intent) {
+    setStatus(`Gameplan locked: ${intent}`);
+    return;
+  }
+  setStatus("Gameplan locked from selected filters.");
 }
 
 async function roastPlanIntent() {
+  setActiveStep("roast");
+  smoothScrollTo(roastPanel);
   const intent = intentText();
-  if (!intent) {
-    updateRoastView("Add intent text first so roast mode can suggest improvements.");
-    setStatus("Roast mode needs a plan intent.");
+  const filterSummary = state.selectedCategories.length ? `Filters: ${state.selectedCategories.join(", ")}` : "";
+  const roastInput = intent || filterSummary;
+  if (!roastInput) {
+    updateRoastView("Add a plan or choose filters first so roast mode has context.");
+    setStatus("Roast mode needs a plan or selected filters.");
     return;
   }
 
   roastPlanButton.disabled = true;
-  updateRoastView("Generating roast suggestion...", false);
+  updateRoastView("Generating roast suggestion...");
   try {
-    const tone = "spicy";
-    // TODO: Replace local suggestion with roast API response once endpoint is ready.
-    state.roastSuggestion = draftRoastSuggestion(intent, tone);
-    updateRoastView(state.roastSuggestion, true);
-    setStatus("Roast suggestion ready. Accept it to update the intent.");
+    const roastData = await api("/api/roast", {
+      method: "POST",
+      body: JSON.stringify({
+        intent: roastInput,
+        tone: "spicy"
+      })
+    });
+    state.roastSuggestion = roastData.roast;
+    updateRoastView(state.roastSuggestion);
+    setStatus("Roast generated from AI.");
+  } catch (error) {
+    updateRoastView(`Roast failed: ${error.message}`);
+    setStatus(`Could not generate roast: ${error.message}`);
   } finally {
     roastPlanButton.disabled = false;
   }
-}
-
-function acceptRoastSuggestion() {
-  if (!state.roastSuggestion) return;
-  planIntentInput.value = state.roastSuggestion;
-  updateRoastView("Suggestion accepted. You can now click Plan meetup.");
-  setStatus("Roast suggestion accepted into plan intent.");
 }
 
 friendsGrid.addEventListener("click", (event) => {
@@ -763,32 +806,42 @@ resultsList.addEventListener("click", (event) => {
 form.addEventListener("click", (event) => {
   const categoryChip = event.target.closest("[data-category]");
   if (categoryChip) {
-    categoryInput.value = categoryChip.dataset.category;
+    const category = categoryChip.dataset.category;
+    const nextSelected = state.selectedCategories.includes(category)
+      ? state.selectedCategories.filter((item) => item !== category)
+      : [...state.selectedCategories, category];
+    state.selectedCategories = nextSelected;
+    categoryInput.value = nextSelected.join(",");
     form.querySelectorAll("[data-category]").forEach((button) => {
-      button.classList.toggle("is-active", button === categoryChip);
+      button.classList.toggle("is-active", nextSelected.includes(button.dataset.category));
     });
-    setStatus(`Venue vibe set to ${categoryChip.textContent.trim()}.`);
+    if (nextSelected.length) {
+      setStatus(`Venue vibes: ${nextSelected.join(", ")}.`);
+    } else {
+      setStatus("Venue vibe cleared.");
+    }
     return;
   }
 
   const optimizeChip = event.target.closest("[data-optimize]");
   if (optimizeChip) {
-    document.querySelector("#optimizeFor").value = optimizeChip.dataset.optimize;
+    const selected = state.optimizeFor === optimizeChip.dataset.optimize ? "" : optimizeChip.dataset.optimize;
+    state.optimizeFor = selected;
+    document.querySelector("#optimizeFor").value = selected;
     form.querySelectorAll("[data-optimize]").forEach((button) => {
-      button.classList.toggle("is-active", button === optimizeChip);
+      button.classList.toggle("is-active", selected === button.dataset.optimize);
     });
-    setStatus(`Squad priority set to ${optimizeChip.textContent.trim()}.`);
+    setStatus(selected ? `Squad priority set to ${optimizeChip.textContent.trim()}.` : "Squad priority cleared.");
   }
 });
 
 form.addEventListener("submit", recommend);
-searchAllButton.addEventListener("click", () => searchAllFriends().catch((error) => setStatus(error.message)));
 addFriendButton.addEventListener("click", addFriend);
 planIntentButton.addEventListener("click", startPlanFromIntent);
 roastPlanButton.addEventListener("click", () => roastPlanIntent().catch((error) => setStatus(error.message)));
-acceptRoastButton.addEventListener("click", acceptRoastSuggestion);
 
 renderFriends();
+setActiveStep("gameplan");
 try {
   await initMap();
   drawMap();
