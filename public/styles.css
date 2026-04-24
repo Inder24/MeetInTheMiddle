@@ -349,10 +349,6 @@ select:focus {
   transform: none;
 }
 
-.place-choice {
-  margin-top: 10px;
-}
-
 .selected-place {
   margin: 9px 0 0;
   color: var(--mint-deep);

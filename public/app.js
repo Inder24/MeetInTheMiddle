@@ -144,14 +144,6 @@ function renderFriends({ focusIndex } = {}) {
         </label>
         <button class="small-button" type="button" data-search-friend="${index}">Search</button>
       </div>
-      <select class="place-choice" data-friend-choice="${index}">
-        <option value="">${friend.options.length ? "Choose live result" : "No live result selected"}</option>
-        ${friend.options.map((place, optionIndex) => `
-          <option value="${optionIndex}" ${friend.selected?.id === place.id ? "selected" : ""}>
-            ${place.name} - ${place.address || place.category}
-          </option>
-        `).join("")}
-      </select>
       <p class="selected-place">${friend.selected ? `${friend.selected.name} (${friend.selected.lat.toFixed(4)}, ${friend.selected.lng.toFixed(4)})` : "Search and choose an origin."}</p>
     </article>
   `).join("");
@@ -628,20 +620,6 @@ friendsGrid.addEventListener("focusin", (event) => {
     state.friends[index].suggestOpen = true;
     updateFriendSuggestions(index);
   }
-});
-
-friendsGrid.addEventListener("change", (event) => {
-  const choice = event.target.closest("[data-friend-choice]");
-  if (!choice) return;
-  const index = Number(choice.dataset.friendChoice);
-  if (choice.value === "") {
-    state.friends[index].selected = null;
-  } else {
-    const selectedIndex = Number(choice.value);
-    state.friends[index].selected = Number.isFinite(selectedIndex) ? state.friends[index].options[selectedIndex] : null;
-  }
-  renderFriends();
-  drawMap();
 });
 
 resultsList.addEventListener("click", (event) => {
