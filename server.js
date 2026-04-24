@@ -144,6 +144,8 @@ function routeProfile(mode) {
   return {
     car: "driving",
     driving: "driving",
+    public_transport: "driving",
+    transit: "driving",
     bike: "cycling",
     bicycle: "cycling",
     cycling: "cycling",
