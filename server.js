@@ -450,9 +450,10 @@ async function suggestPlaces(params) {
 }
 
 async function routeBetween(origin, destination, mode) {
+  const profile = routeProfile(mode);
   const data = await grabRequest("/api/v1/maps/eta/v1/direction", {
     coordinates: [`${origin.lng},${origin.lat}`, `${destination.lng},${destination.lat}`],
-    profile: routeProfile(mode),
+    profile,
     overview: "full"
   });
 
@@ -468,33 +469,46 @@ async function routeBetween(origin, destination, mode) {
     trafficLight: route.traffic_light || 0,
     fee: route.fee || null,
     legs: route.legs || [],
-    mode: routeProfile(mode),
+    mode: profile,
+    requestedMode: mode,
     waypoints: data.waypoints || []
   };
 }
 
 function durationStats(routes) {
   const durations = routes.map((route) => route.duration);
+  const walkingDurations = routes
+    .filter((route) => route.mode === "walking")
+    .map((route) => route.duration);
   const total = durations.reduce((sum, value) => sum + value, 0);
   const max = Math.max(...durations);
   const min = Math.min(...durations);
   const avg = total / durations.length;
-  return { durations, total, max, min, avg, imbalance: max - min };
+  const walkingMax = walkingDurations.length ? Math.max(...walkingDurations) : 0;
+  const walkingAvg = walkingDurations.length
+    ? walkingDurations.reduce((sum, value) => sum + value, 0) / walkingDurations.length
+    : 0;
+  return { durations, total, max, min, avg, imbalance: max - min, walkingMax, walkingAvg, walkingCount: walkingDurations.length };
 }
 
 function scoreCandidate(stats, optimizeFor, capMinutes, centerDistanceMeters = 0, intentFit = true) {
   const proximityPenalty = centerDistanceMeters * 0.08;
   const intentPenalty = intentFit === false ? 900 : 0;
+  const walkingComfortSeconds = 12 * 60;
+  const walkingHardCapSeconds = 20 * 60;
+  const walkingSoftPenalty = Math.max(0, stats.walkingMax - walkingComfortSeconds) * 1.8;
+  const walkingHardPenalty = Math.max(0, stats.walkingMax - walkingHardCapSeconds) * 7;
+  const walkingPenalty = stats.walkingCount ? walkingSoftPenalty + walkingHardPenalty : 0;
   if (optimizeFor === "fastest") return stats.max * 0.85 + stats.avg * 0.1 + stats.imbalance * 0.05 + proximityPenalty + intentPenalty;
   if (optimizeFor === "capped") {
     const capSeconds = (capMinutes || 25) * 60;
     const penalty = stats.max > capSeconds ? (stats.max - capSeconds) * 10 : 0;
-    return stats.max * 0.45 + stats.total * 0.25 + stats.imbalance * 0.3 + penalty + proximityPenalty + intentPenalty;
+    return stats.max * 0.45 + stats.total * 0.25 + stats.imbalance * 0.3 + penalty + walkingPenalty + proximityPenalty + intentPenalty;
   }
   if (optimizeFor === "social") {
-    return stats.max * 0.5 + stats.imbalance * 0.35 + stats.avg * 0.15 + proximityPenalty + intentPenalty;
+    return stats.max * 0.5 + stats.imbalance * 0.35 + stats.avg * 0.15 + walkingPenalty + proximityPenalty + intentPenalty;
   }
-  return stats.max * 0.55 + stats.avg * 0.25 + stats.imbalance * 0.2 + proximityPenalty + intentPenalty;
+  return stats.max * 0.55 + stats.avg * 0.25 + stats.imbalance * 0.2 + walkingPenalty + proximityPenalty + intentPenalty;
 }
 
 function fairnessScore(stats) {
@@ -507,9 +521,12 @@ function explain(candidate) {
   const average = Math.round(candidate.stats.avg / 60);
   const spread = Math.round(candidate.stats.imbalance / 60);
   const combined = Math.round(candidate.stats.total / 60);
+  const walkingNote = candidate.stats.walkingCount
+    ? ` Walker-sensitive scoring keeps the longest walk around ${Math.round(candidate.stats.walkingMax / 60)} min.`
+    : "";
   const trafficLights = candidate.routes.reduce((sum, route) => sum + Number(route.trafficLight || 0), 0);
   const source = candidate.venue.source === "nearby" ? "nearby GrabMaps POI discovery" : "GrabMaps keyword search";
-  return `Chosen from ${source} using GrabMaps traffic-adjusted ETAs because everyone can arrive in about ${longest} min, the average trip is ${average} min, the spread is ${spread} min, combined travel effort is ${combined} min, and routes pass ${trafficLights} traffic lights.`;
+  return `Chosen from ${source} using GrabMaps traffic-adjusted ETAs because everyone can arrive in about ${longest} min, the average trip is ${average} min, the spread is ${spread} min, combined travel effort is ${combined} min, and routes pass ${trafficLights} traffic lights.${walkingNote}`;
 }
 
 function roastFor(candidate, tone) {
