@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$ROOT_DIR"
+
+if [[ -f .env ]]; then
+  set -a
+  # shellcheck disable=SC1091
+  source .env
+  set +a
+fi
+
+export PORT="${PORT:-3002}"
+export MEET_API_BASE_URL="${MEET_API_BASE_URL:-http://localhost:${PORT}}"
+
+if [[ ! -d node_modules ]]; then
+  echo "Installing dependencies..."
+  npm install
+fi
+
+cleanup() {
+  echo
+  echo "Stopping MeetInTheMiddle services..."
+  [[ -n "${WEB_PID:-}" ]] && kill "$WEB_PID" 2>/dev/null || true
+  [[ -n "${BOT_PID:-}" ]] && kill "$BOT_PID" 2>/dev/null || true
+  wait 2>/dev/null || true
+}
+
+trap cleanup INT TERM EXIT
+
+echo "Starting web app on http://localhost:${PORT}"
+node server.js &
+WEB_PID=$!
+
+if [[ -n "${TELEGRAM_BOT_TOKEN:-}" ]]; then
+  echo "Starting Telegram bot against ${MEET_API_BASE_URL}"
+  node telegram-bot.js &
+  BOT_PID=$!
+else
+  echo "Skipping Telegram bot because TELEGRAM_BOT_TOKEN is not set."
+fi
+
+echo
+echo "MeetInTheMiddle is running."
+echo "Open http://localhost:${PORT}"
+echo "Press Ctrl+C to stop everything."
+
+wait
