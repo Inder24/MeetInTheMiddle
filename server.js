@@ -333,6 +333,7 @@ app.get("/api/style.json", async (req, res, next) => {
   try {
     const style = await grabRequest("/api/style.json", { theme: req.query.theme || "basic" });
     const publicOrigin = `${req.protocol}://${req.get("host")}`;
+    res.set("Cache-Control", "no-store");
     res.json(proxiedGrabStyle(style, publicOrigin));
   } catch (error) {
     next(error);

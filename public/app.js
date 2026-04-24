@@ -1,3 +1,5 @@
+import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/assets/js/grabmaps.es.js";
+
 const friendSeeds = [
   { name: "Asha", query: "Orchard Road Singapore", mode: "car", color: "#00b577" },
   { name: "Ben", query: "Tampines Singapore", mode: "motorcycle", color: "#f45f4f" },
@@ -346,19 +348,23 @@ function lineFeature(route, color) {
 async function initMap() {
   setMapStatus("Loading Grab map...");
   const mapCenter = [103.8198, 1.3521];
+  const config = await api("/api/client-config");
   const style = await api("/api/style.json?theme=basic");
-  state.map = new maplibregl.Map({
-    container: "map",
-    style,
-    center: mapCenter,
-    zoom: 10,
-    attributionControl: false
-  });
-  state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
-  state.map.addControl(new maplibregl.AttributionControl({
-    compact: true,
-    customAttribution: "© Grab | © OpenStreetMap contributors"
-  }));
+  const client = new GrabMapsBuilder()
+    .setBaseUrl(window.location.origin)
+    .setApiKey(config.grabMapsApiKey)
+    .build();
+  state.grabMap = await new MapBuilder(client)
+    .setContainer("map")
+    .setCenter(mapCenter)
+    .setZoom(10)
+    .setStyle(style)
+    .enableNavigation()
+    .enableAttribution()
+    .enableBuildings()
+    .enableLabels()
+    .build();
+  state.map = state.grabMap.getMap();
 
   if (!state.map.loaded()) {
     await new Promise((resolve) => {
