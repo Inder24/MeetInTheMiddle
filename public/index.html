@@ -30,12 +30,30 @@
             <strong>Plan</strong>
           </div>
           <div class="controls-grid">
-            <label>
-              Venue vibe
-              <input id="category" name="category" value="cafe" autocomplete="off" />
-            </label>
-            <label>
-              Optimize
+            <div class="vibe-control form-field">
+              <span class="field-label">Venue vibe</span>
+              <input id="category" name="category" type="hidden" value="cafe" />
+              <div class="vibe-chips" role="group" aria-label="Venue vibe">
+                <button class="vibe-chip is-active" type="button" data-category="cafe">Cafe</button>
+                <button class="vibe-chip" type="button" data-category="food">Food</button>
+                <button class="vibe-chip" type="button" data-category="mall">Mall</button>
+                <button class="vibe-chip" type="button" data-category="park">Park / Nature</button>
+                <button class="vibe-chip" type="button" data-category="bar">Bar</button>
+                <button class="vibe-chip" type="button" data-category="dessert">Dessert</button>
+                <button class="vibe-chip" type="button" data-category="coworking">Coworking</button>
+              </div>
+            </div>
+            <label class="tooltip-field">
+              <span class="label-with-help">
+                Optimize
+                <button class="help-dot" type="button" aria-describedby="optimize-help" aria-label="What does optimize do?">?</button>
+              </span>
+              <span class="tooltip-card" id="optimize-help" role="tooltip">
+                <strong>Most fair:</strong> minimizes the longest trip and imbalance.
+                <strong>Fastest:</strong> minimizes total group travel time.
+                <strong>Nobody over cap:</strong> penalizes venues above max minutes.
+                <strong>Cheapest socially:</strong> minimizes resentment from uneven travel.
+              </span>
               <select id="optimizeFor" name="optimizeFor">
                 <option value="fair">Most fair</option>
                 <option value="fastest">Fastest overall</option>

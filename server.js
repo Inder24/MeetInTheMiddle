@@ -144,12 +144,25 @@ function routeProfile(mode) {
   return {
     car: "driving",
     driving: "driving",
-    motorcycle: "motorcycle",
     bike: "cycling",
+    bicycle: "cycling",
     cycling: "cycling",
     walk: "walking",
     walking: "walking"
   }[mode] || "driving";
+}
+
+function venueSearchKeyword(category) {
+  const normalized = String(category || "cafe").toLowerCase();
+  return {
+    cafe: "cafe coffee",
+    food: "restaurant food",
+    mall: "shopping mall",
+    park: "park nature trail garden",
+    bar: "bar pub",
+    dessert: "dessert ice cream bakery",
+    coworking: "coworking workspace"
+  }[normalized] || "cafe coffee";
 }
 
 function centerOf(friends) {
@@ -410,11 +423,12 @@ app.post("/api/recommend", async (req, res, next) => {
 
     const center = centerOf(friends);
     const category = req.body.category || "cafe";
+    const venueKeyword = venueSearchKeyword(category);
     const optimizeFor = req.body.optimizeFor || "fair";
     const capMinutes = Number(req.body.capMinutes || 25);
     const tone = req.body.tone || "spicy";
     const venuePlaces = await searchPlaces({
-      keyword: category,
+      keyword: venueKeyword,
       location: `${center.lat},${center.lng}`,
       country: req.body.country || "SGP",
       limit: req.body.candidateLimit || 18
@@ -443,6 +457,7 @@ app.post("/api/recommend", async (req, res, next) => {
     res.json({
       center,
       category,
+      venueKeyword,
       generatedAt: new Date().toISOString(),
       results: sortAndShape(candidates, optimizeFor, capMinutes, tone)
     });

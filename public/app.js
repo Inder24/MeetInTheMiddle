@@ -2,7 +2,7 @@ import { GrabMapsBuilder, MapBuilder } from "https://maps.grab.com/developer/ass
 
 const friendSeeds = [
   { name: "Asha", query: "Orchard Road Singapore", mode: "car", color: "#00b577" },
-  { name: "Ben", query: "Tampines Singapore", mode: "motorcycle", color: "#f45f4f" },
+  { name: "Ben", query: "Tampines Singapore", mode: "bike", color: "#f45f4f" },
   { name: "Chloe", query: "Jurong East Singapore", mode: "bike", color: "#2c7be5" },
   { name: "Dev", query: "Marina Bay Sands", mode: "walk", color: "#f4bd38" }
 ];
@@ -32,6 +32,7 @@ const statusLine = document.querySelector("#status-line");
 const mapStatus = document.querySelector("#map-status");
 const resultsList = document.querySelector("#results-list");
 const shareCard = document.querySelector("#share-card");
+const categoryInput = document.querySelector("#category");
 const suggestTimers = new Map();
 const suggestRequestIds = new Map();
 
@@ -123,8 +124,7 @@ function renderFriends({ focusIndex } = {}) {
           Mode
           <select data-friend-mode="${index}">
             <option value="car" ${friend.mode === "car" ? "selected" : ""}>Car</option>
-            <option value="motorcycle" ${friend.mode === "motorcycle" ? "selected" : ""}>Motorcycle</option>
-            <option value="bike" ${friend.mode === "bike" ? "selected" : ""}>Bike</option>
+            <option value="bike" ${friend.mode === "bike" ? "selected" : ""}>Bicycle</option>
             <option value="walk" ${friend.mode === "walk" ? "selected" : ""}>Walk</option>
           </select>
         </label>
@@ -571,7 +571,7 @@ async function recommend(event) {
       method: "POST",
       body: JSON.stringify({
         friends,
-        category: document.querySelector("#category").value.trim() || "cafe",
+        category: categoryInput.value || "cafe",
         optimizeFor: document.querySelector("#optimizeFor").value,
         capMinutes: Number(document.querySelector("#capMinutes").value || 25),
         tone: document.querySelector("#tone").value
@@ -628,6 +628,16 @@ resultsList.addEventListener("click", (event) => {
   state.activeIndex = Number(card.dataset.resultIndex);
   renderResults();
   drawMap();
+});
+
+form.addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-category]");
+  if (!chip) return;
+  categoryInput.value = chip.dataset.category;
+  form.querySelectorAll(".vibe-chip").forEach((button) => {
+    button.classList.toggle("is-active", button === chip);
+  });
+  setStatus(`Venue vibe set to ${chip.textContent.trim()}.`);
 });
 
 form.addEventListener("submit", recommend);
