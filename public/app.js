@@ -8,7 +8,14 @@ const friendSeeds = [
 ];
 
 const state = {
-  friends: friendSeeds.map((seed) => ({ ...seed, selected: null, options: [] })),
+  friends: friendSeeds.map((seed) => ({
+    ...seed,
+    selected: null,
+    options: [],
+    suggestions: [],
+    suggestOpen: false,
+    isSuggesting: false
+  })),
   results: [],
   activeIndex: 0,
   map: null,
@@ -25,6 +32,8 @@ const statusLine = document.querySelector("#status-line");
 const mapStatus = document.querySelector("#map-status");
 const resultsList = document.querySelector("#results-list");
 const shareCard = document.querySelector("#share-card");
+const suggestTimers = new Map();
+let suggestRequestId = 0;
 
 function minutes(seconds) {
   return `${Math.round(seconds / 60)} min`;
@@ -58,7 +67,51 @@ function pointFromPlace(place) {
   return pointFrom(place?.lat, place?.lng);
 }
 
-function renderFriends() {
+function escapeHtml(value = "") {
+  return String(value).replace(/[&<>"']/g, (char) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "\"": "&quot;",
+    "'": "&#039;"
+  })[char]);
+}
+
+function placeSubtitle(place) {
+  return place.address || place.category || "Grab Maps result";
+}
+
+function focusOriginInput(index) {
+  requestAnimationFrame(() => {
+    const input = document.querySelector(`[data-friend-query="${index}"]`);
+    if (!input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
+
+function renderSuggestions(friend, index) {
+  if (!friend.suggestOpen) return "";
+  if (friend.isSuggesting) {
+    return `<div class="autocomplete-panel is-loading" role="status">Finding live Grab suggestions...</div>`;
+  }
+  if (!friend.suggestions.length) {
+    return `<div class="autocomplete-panel is-empty" role="status">No suggestions yet. Try a fuller address.</div>`;
+  }
+
+  return `
+    <div class="autocomplete-panel" role="listbox" aria-label="Origin suggestions">
+      ${friend.suggestions.map((place, suggestionIndex) => `
+        <button class="suggestion-option" type="button" role="option" data-suggest-place="${index}:${suggestionIndex}">
+          <span>${escapeHtml(place.name)}</span>
+          <small>${escapeHtml(placeSubtitle(place))}</small>
+        </button>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderFriends({ focusIndex } = {}) {
   friendsGrid.innerHTML = state.friends.map((friend, index) => `
     <article class="friend-card">
       <div class="friend-top">
@@ -77,9 +130,17 @@ function renderFriends() {
         </label>
       </div>
       <div class="search-row">
-        <label>
+        <label class="origin-field">
           Origin search
-          <input data-friend-query="${index}" value="${friend.query}" />
+          <input
+            data-friend-query="${index}"
+            value="${escapeHtml(friend.query)}"
+            autocomplete="off"
+            aria-autocomplete="list"
+            aria-expanded="${friend.suggestOpen ? "true" : "false"}"
+            placeholder="Start typing an address or place"
+          />
+          ${renderSuggestions(friend, index)}
         </label>
         <button class="small-button" type="button" data-search-friend="${index}">Search</button>
       </div>
@@ -94,6 +155,8 @@ function renderFriends() {
       <p class="selected-place">${friend.selected ? `${friend.selected.name} (${friend.selected.lat.toFixed(4)}, ${friend.selected.lng.toFixed(4)})` : "Search and choose an origin."}</p>
     </article>
   `).join("");
+
+  if (Number.isInteger(focusIndex)) focusOriginInput(focusIndex);
 }
 
 async function api(path, options = {}) {
@@ -118,9 +181,66 @@ async function searchFriend(index) {
   const data = await api(`/api/search?keyword=${encodeURIComponent(friend.query)}&country=SGP&limit=6`);
   friend.options = data.places;
   friend.selected = data.places[0] || null;
+  friend.suggestions = [];
+  friend.suggestOpen = false;
+  friend.isSuggesting = false;
   renderFriends();
   drawMap();
   setStatus(data.places.length ? `Selected first live match for ${friend.name}.` : `No live places found for ${friend.name}.`);
+}
+
+function selectFriendPlace(index, place) {
+  const friend = state.friends[index];
+  friend.selected = place;
+  friend.query = place.name;
+  friend.options = [place, ...friend.options.filter((option) => option.id !== place.id)].slice(0, 6);
+  friend.suggestions = [];
+  friend.suggestOpen = false;
+  friend.isSuggesting = false;
+  renderFriends();
+  drawMap();
+  setStatus(`${friend.name}'s origin selected from Grab Maps autocomplete.`);
+}
+
+async function suggestFriend(index, requestId) {
+  const friend = state.friends[index];
+  const keyword = friend.query.trim();
+  if (keyword.length < 2) return;
+
+  try {
+    const data = await api(`/api/suggest?keyword=${encodeURIComponent(keyword)}&country=SGP&limit=5`);
+    if (requestId !== suggestRequestId) return;
+    friend.suggestions = data.places;
+    friend.isSuggesting = false;
+    friend.suggestOpen = true;
+    renderFriends({ focusIndex: index });
+  } catch (error) {
+    if (requestId !== suggestRequestId) return;
+    friend.suggestions = [];
+    friend.isSuggesting = false;
+    friend.suggestOpen = true;
+    renderFriends({ focusIndex: index });
+    setStatus(`Autocomplete unavailable for ${friend.name}: ${error.message}`);
+  }
+}
+
+function queueSuggest(index) {
+  const friend = state.friends[index];
+  clearTimeout(suggestTimers.get(index));
+
+  if (friend.query.trim().length < 2) {
+    friend.suggestions = [];
+    friend.suggestOpen = false;
+    friend.isSuggesting = false;
+    renderFriends({ focusIndex: index });
+    return;
+  }
+
+  friend.suggestOpen = true;
+  friend.isSuggesting = true;
+  renderFriends({ focusIndex: index });
+  const requestId = ++suggestRequestId;
+  suggestTimers.set(index, setTimeout(() => suggestFriend(index, requestId), 220));
 }
 
 async function searchAllFriends() {
@@ -464,10 +584,36 @@ async function recommend(event) {
 }
 
 friendsGrid.addEventListener("click", (event) => {
+  const suggestion = event.target.closest("[data-suggest-place]");
+  if (suggestion) {
+    const [friendIndex, suggestionIndex] = suggestion.dataset.suggestPlace.split(":").map(Number);
+    const place = state.friends[friendIndex]?.suggestions[suggestionIndex];
+    if (place) selectFriendPlace(friendIndex, place);
+    return;
+  }
+
   const button = event.target.closest("[data-search-friend]");
   if (!button) return;
   collectFriendInputs();
   searchFriend(Number(button.dataset.searchFriend)).catch((error) => setStatus(error.message));
+});
+
+friendsGrid.addEventListener("input", (event) => {
+  const input = event.target.closest("[data-friend-query]");
+  if (!input) return;
+  const index = Number(input.dataset.friendQuery);
+  state.friends[index].query = input.value;
+  queueSuggest(index);
+});
+
+friendsGrid.addEventListener("focusin", (event) => {
+  const input = event.target.closest("[data-friend-query]");
+  if (!input) return;
+  const index = Number(input.dataset.friendQuery);
+  if (state.friends[index].suggestions.length) {
+    state.friends[index].suggestOpen = true;
+    renderFriends({ focusIndex: index });
+  }
 });
 
 friendsGrid.addEventListener("change", (event) => {

@@ -80,28 +80,70 @@ function centerOf(friends) {
   return { lat: totals.lat / friends.length, lng: totals.lng / friends.length };
 }
 
+function coordinateFrom(location, ...keys) {
+  for (const key of keys) {
+    const value = Number(location?.[key]);
+    if (Number.isFinite(value)) return value;
+  }
+  return NaN;
+}
+
 function normalizePlace(place) {
+  const lat = coordinateFrom(place.location, "latitude", "lat") || coordinateFrom(place, "latitude", "lat");
+  const lng = coordinateFrom(place.location, "longitude", "lng", "lon") || coordinateFrom(place, "longitude", "lng", "lon");
   return {
     id: place.poi_id || place.id || `${place.name}-${place.location?.latitude}-${place.location?.longitude}`,
     name: place.name || place.short_name || "Unnamed place",
     category: place.category || place.business_type || place.categories?.[0]?.category_name || "place",
     address: place.formatted_address || [place.house, place.street, place.postcode].filter(Boolean).join(", "),
-    lat: Number(place.location?.latitude),
-    lng: Number(place.location?.longitude),
+    lat,
+    lng,
     raw: place
   };
 }
 
 async function searchPlaces({ keyword, location, country = "SGP", limit = 8 }) {
+  const maxResults = Number(limit) || 8;
   const data = await grabRequest("/api/v1/maps/poi/v1/search", {
     keyword,
     country,
     location,
-    limit
+    limit: maxResults
   });
   return (data.places || [])
     .map(normalizePlace)
-    .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng));
+    .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng))
+    .slice(0, maxResults);
+}
+
+async function autocompletePlaces({ keyword, location, country = "SGP", language, limit = 6 }) {
+  const maxResults = Number(limit) || 6;
+  const data = await grabRequest("/api/v1/maps/poi/v1/autocomplete", {
+    keyword,
+    country,
+    location,
+    language,
+    limit: maxResults
+  });
+  return (data.places || [])
+    .map(normalizePlace)
+    .filter((place) => Number.isFinite(place.lat) && Number.isFinite(place.lng))
+    .slice(0, maxResults);
+}
+
+async function suggestPlaces(params) {
+  try {
+    return {
+      source: "autocomplete",
+      places: await autocompletePlaces(params)
+    };
+  } catch (error) {
+    if (error.status !== 404) throw error;
+    return {
+      source: "search-fallback",
+      places: await searchPlaces(params)
+    };
+  }
 }
 
 async function routeBetween(origin, destination, mode) {
@@ -225,6 +267,27 @@ app.get("/api/search", async (req, res, next) => {
       limit: req.query.limit || 8
     });
     res.json({ places });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/suggest", async (req, res, next) => {
+  try {
+    const keyword = String(req.query.keyword || "").trim();
+    if (keyword.length < 2) {
+      res.json({ places: [] });
+      return;
+    }
+
+    const suggestionResult = await suggestPlaces({
+      keyword,
+      location: req.query.location,
+      country: req.query.country || "SGP",
+      language: req.query.language,
+      limit: req.query.limit || 6
+    });
+    res.json(suggestionResult);
   } catch (error) {
     next(error);
   }
